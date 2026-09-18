@@ -14,7 +14,9 @@
     "format": "prettier --write \"contracts/**/*.sol\"",
     "format:check": "prettier --check \"contracts/**/*.sol\"",
     "lint:sol": "solhint \"contracts/**/*.sol\" --max-warnings 0",
-    "verify": "npm run format:check && npm run lint:sol && npm run build && npm test"
+    "check:links": "node ../scripts/check-link-references.mjs",
+    "check:size": "node ../scripts/check-contract-size.mjs",
+    "verify": "npm run format:check && npm run lint:sol && npm run build && npm run check:links && npm run check:size && npm test"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
@@ -26,6 +28,7 @@
     "typescript": "^5.6.3"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "5.0.2"
+    "@openzeppelin/contracts": "5.0.2",
+    "@semaphore-protocol/contracts": "^4.14.3"
   }
 }

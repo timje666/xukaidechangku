@@ -1,8 +1,14 @@
 # Solhint 忽略清单
 #
-# contracts/harness/ 下的合约是测试夹具（仅做参数转发、无业务逻辑、不部署到链上），
-# 不适用生产级 NatSpec 要求。将其排除可让告警集中在真正会被审计的合约上。
+# contracts/harness/ 与 contracts/probe/ 均非业务合约：
+#   - harness/  测试夹具：仅做参数转发，无业务逻辑，不部署到链上
+#   - probe/    依赖兼容性探针：唯一作用是在每次编译时校验第三方依赖的 API 形状，
+#               不承担业务职责（其设计结论已完整记录在合约头部的 @dev 块中）
+# 二者不适用生产级 NatSpec 要求。排除后告警可集中在真正会被审计的业务合约上，
+# 避免 20+ 条噪声淹没真实问题。
 #
-# 注意：硬约束守卫测试（test/p1.hard-constraints.test.ts）**不**使用本忽略清单，
-#       harness 同样受全部禁用项扫描约束。
+# 【重要】本清单**不**作用于硬约束守卫测试
+#         （test/p1.hard-constraints.test.ts 自行遍历 .sol 文件，
+#           harness/ 与 probe/ 同样受全部禁用项扫描约束）。
 contracts/harness/
+contracts/probe/
