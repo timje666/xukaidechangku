@@ -1,0 +1,92 @@
+name: CI
+
+# 说明（P0 决策）：
+#   原方案指定 Foundry（forge fmt / forge test / forge snapshot / forge invariant）。
+#   因目标环境 GitHub 不可达，Foundry 分发包与 forge install 无法使用，
+#   P0 已改用 Hardhat 2.x。本流水线为等价替代实现。
+#   若后续获得 GitHub 访问能力，可恢复 Foundry 并保留本流水线作为双保险。
+#
+# 【待落地】slither 静态分析与 invariant 测试尚未接入，见 docs/P0-环境搭建记录.md 遗留项。
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+defaults:
+  run:
+    working-directory: contracts
+
+jobs:
+  build-and-test:
+    name: 编译 · 测试 · 覆盖率 · 体积
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      # ---------- 门禁 1：编译（solc 0.8.24） ----------
+      - name: 编译合约
+        run: npm run build
+
+      # ---------- 门禁 2：单元测试 ----------
+      - name: 单元测试
+        run: npm test
+
+      # ---------- 门禁 3：覆盖率 ----------
+      - name: 覆盖率
+        run: npx hardhat coverage
+      - name: 覆盖率门槛（行覆盖 ≥ 90%）
+        run: node ../scripts/check-coverage.mjs 90
+
+      # ---------- 门禁 4：合约体积 ≤ 24576 字节 ----------
+      - name: 合约体积检查
+        run: node ../scripts/check-contract-size.mjs
+
+      # ---------- 门禁 5：gas 基线快照 ----------
+      - name: 生成 gas 基线
+        run: REPORT_GAS=true npm test
+        env:
+          REPORT_GAS: "true"
+
+      - name: 上传构建产物
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chainvote-artifacts
+          path: |
+            contracts/artifacts/
+            contracts/coverage/
+          retention-days: 7
+
+  secret-scan:
+    name: 密钥泄漏扫描（【硬约束】）
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+      - name: 禁止提交 .env 与私钥形态字符串
+        working-directory: .
+        run: |
+          set -e
+          if [ -f .env ] || [ -f contracts/.env ]; then
+            echo "::error::检测到 .env 文件被提交，违反硬约束"; exit 1
+          fi
+          if grep -rnE '^\s*(DEPLOYER_PK|RELAYER_PRIVATE_KEY)\s*=\s*0x[0-9a-fA-F]{64}' \
+               --include='*.ts' --include='*.js' --include='*.sol' --include='*.json' . ; then
+            echo "::error::检测到硬编码私钥，违反硬约束"; exit 1
+          fi
+          echo "密钥扫描通过"

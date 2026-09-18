@@ -1,0 +1,42 @@
+# ---------- 密钥与本地配置（【硬约束】严禁入库） ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Solidity / Hardhat 构建产物 ----------
+node_modules/
+artifacts/
+cache/
+coverage/
+coverage.json
+typechain-types/
+dist/
+
+# ---------- Next.js 构建产物 ----------
+# 修正：初版 .gitignore 遗漏此项，导致 apps/web/.next 被提交（已在 P0 基线提交中剔除）
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# ---------- Foundry（若后续切换工具链） ----------
+out/
+broadcast/
+lib/
+
+# ---------- 部署产物：保留 JSON（含地址与区块号），排除私钥残留 ----------
+!contracts/deployments/*.json
+
+# ---------- 编辑器与系统 ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---------- 日志 ----------
+*.log
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*

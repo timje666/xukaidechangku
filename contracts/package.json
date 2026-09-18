@@ -1,0 +1,22 @@
+{
+  "name": "@chainvote/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ChainVote contracts workspace - 参数已冻结，见 contracts/libs/Params.sol",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "test:gas": "REPORT_GAS=true hardhat test",
+    "node": "hardhat node",
+    "coverage": "hardhat coverage"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.29.1",
+    "typescript": "^5.6.3"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "5.0.2"
+  }
+}
