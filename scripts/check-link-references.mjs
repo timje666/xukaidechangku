@@ -37,9 +37,17 @@ const EXPECTED_LINKS = [
     reason:
       "L5 实测结论：poseidon-solidity 的 PoseidonT3.hash 是 public 函数，" +
       "而任何在链上维护 Semaphore 兼容 Merkle 树的合约都必须调用它来哈希内部节点。" +
-      "即使选用 InternalLeanIMT（internal，已内联）也无法消除该依赖。" +
-      "⇒ P8 部署脚本必须「先部署 PoseidonT3 → 再部署业务合约并传入库地址」，" +
-      "区块浏览器验证时需一并提供库地址。",
+      "即使选用 InternalLeanIMT（internal，已内联）也无法消除该依赖。",
+  },
+  {
+    contract: "VoterRegistry",
+    lib: "PoseidonT3",
+    reason:
+      "业务合约，链接依赖**不可回避**：VoterRegistry 用 LeanIMT 在链上维护名册树，" +
+      "每次 _insert 都要调用 PoseidonT3.hash 计算内部节点。" +
+      "唯一能消除该依赖的方式是改为「链下建树 + 仅上链根」，" +
+      "但 L5 实测显示链上建树成本可接受（每叶约 5.9 万 gas，约 350 USD / 10 万选民），" +
+      "没有理由为此放弃「名册根由合约推导」的强安全模型（详见 docs/L5-依赖验证报告.md §6）。",
   },
 ];
 

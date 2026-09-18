@@ -8,6 +8,7 @@
     "no-global-import": "off",
     "no-empty-blocks": "off",
     "gas-custom-errors": "error",
-    "gas-strict-inequalities": "off"
+    "gas-strict-inequalities": "off",
+    "gas-indexed-events": "off"
   }
 }

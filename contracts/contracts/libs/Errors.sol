@@ -47,6 +47,18 @@ error AlreadyFinalized();
 /// @notice 揭示窗口尚未结束
 error RevealWindowOpen();
 
+// ---------- 名册登记（P2） ----------
+/// @notice 登记期已结束
+error RegistrationNotEnded();
+/// @notice 该地址已在名册中
+error AlreadyRegistered(address voter);
+/// @notice 该承诺已被其他地址使用
+error CommitmentAlreadyUsed(uint256 commitment);
+/// @notice 承诺不得为零
+error ZeroCommitment();
+/// @notice 名册为空，不可固化根
+error EmptyRoster();
+
 // ---------- 配置校验 ----------
 error InvalidOptionCount();
 error InvalidMaxChoices();
