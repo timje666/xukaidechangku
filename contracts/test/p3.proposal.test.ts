@@ -2,6 +2,8 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 
+import { buildProposalInit, buildTimeWindows } from "./helpers/proposal";
+
 /**
  * P3 单元测试 —— Proposal 四阶段状态机
  *
@@ -30,20 +32,14 @@ describe("P3 · Proposal 状态机", function () {
         await mockVerifier.waitForDeployment();
 
         const now = BigInt(await time.latest());
-        // 注意：部署交易会使 block.timestamp 前进，故每段窗口都必须比下限留出余量，
-        // 否则「registrationEnd - now_」会恰好等于下限而差 1 秒被判非法。
-        const init = {
+        // 用共享构造器：时窗余量规则与 ProposalInit 字段清单统一收敛在 helpers/proposal.ts，
+        // 避免每次给 ProposalInit 加字段都要回来改本文件
+        const init = buildProposalInit({
             proposalId: 1n,
             registry: alice.address,
             verifier: await mockVerifier.getAddress(),
-            metadataCid: ethers.id("chainvote-meta"),
-            registrationEnd: now + 2n * HOUR,
-            votingStart: now + 4n * HOUR,
-            votingEnd: now + 8n * HOUR,
-            revealEnd: now + 8n * HOUR + 48n * HOUR,
-            optionCount: 4,
-            maxChoices: 2,
-        };
+            ...buildTimeWindows(now),
+        });
 
         const H = await ethers.getContractFactory("ProposalHarness", {
             libraries: { PoseidonT4: pt4Addr },

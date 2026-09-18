@@ -2,6 +2,8 @@ import { expect } from "chai";
 import { ethers } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 
+import { buildProposalInit, buildTimeWindows } from "./helpers/proposal";
+
 /**
  * P4 单元测试 —— Semaphore 集成（`castVote` + ZK 证明校验）
  *
@@ -53,44 +55,43 @@ describe("P4 · Semaphore 集成", function () {
         });
 
         const now = BigInt(await time.latest());
-        const registrationEnd = now + 2n * HOUR;
-        const votingStart = now + 4n * HOUR;
-        const votingEnd = now + 8n * HOUR;
-        const revealEnd = now + 8n * HOUR + 48n * HOUR;
+        const tw = buildTimeWindows(now);
 
-        const registry = await R.deploy(admin.address, registrationEnd);
+        const registry = await R.deploy(admin.address, tw.registrationEnd);
         await registry.waitForDeployment();
 
         const REGISTRAR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ChainVote.REGISTRAR_ROLE"));
         await registry.connect(admin).grantRole(REGISTRAR_ROLE, registrar.address);
 
+        // 注意：`castVote` 会校验 `!isRegistered(msg.sender)`（阻断登记地址直投）。
+        // 测试 signer 均不在名册中（名册登记的是随机地址），故可正常提交。
         const P = await ethers.getContractFactory("ProposalHarness", {
             libraries: { PoseidonT4: pt4Addr },
         });
 
         const baseInit = {
-            metadataCid: ethers.id("meta"),
             registry: await registry.getAddress(),
-            registrationEnd,
-            votingStart,
-            votingEnd,
-            revealEnd,
-            optionCount: 4,
-            maxChoices: 2,
+            ...tw,
         };
 
-        const pReal = await P.deploy(admin.address, {
-            ...baseInit,
-            proposalId: 1n,
-            verifier: await realVerifier.getAddress(),
-        });
+        const pReal = await P.deploy(
+            admin.address,
+            buildProposalInit({
+                ...baseInit,
+                proposalId: 1n,
+                verifier: await realVerifier.getAddress(),
+            })
+        );
         await pReal.waitForDeployment();
 
-        const pMock = await P.deploy(admin.address, {
-            ...baseInit,
-            proposalId: 2n,
-            verifier: await mockVerifier.getAddress(),
-        });
+        const pMock = await P.deploy(
+            admin.address,
+            buildProposalInit({
+                ...baseInit,
+                proposalId: 2n,
+                verifier: await mockVerifier.getAddress(),
+            })
+        );
         await pMock.waitForDeployment();
 
         return {
@@ -104,10 +105,10 @@ describe("P4 · Semaphore 集成", function () {
             registrar,
             alice,
             now,
-            registrationEnd,
-            votingStart,
-            votingEnd,
-            revealEnd,
+            registrationEnd: tw.registrationEnd,
+            votingStart: tw.votingStart,
+            votingEnd: tw.votingEnd,
+            revealEnd: tw.revealEnd,
         };
     }
 
@@ -512,18 +513,19 @@ describe("P4 · Semaphore 集成", function () {
                 libraries: { PoseidonT4: f.pt4Addr },
             });
             await expect(
-                P.deploy(f.admin.address, {
-                    proposalId: 9n,
-                    metadataCid: ethers.id("m"),
-                    registry: await f.registry.getAddress(),
-                    verifier: ethers.ZeroAddress,
-                    registrationEnd: f.registrationEnd,
-                    votingStart: f.votingStart,
-                    votingEnd: f.votingEnd,
-                    revealEnd: f.revealEnd,
-                    optionCount: 4,
-                    maxChoices: 2,
-                })
+                P.deploy(
+                    f.admin.address,
+                    buildProposalInit({
+                        proposalId: 9n,
+                        registry: await f.registry.getAddress(),
+                        verifier: ethers.ZeroAddress,
+                        now: f.now,
+                        registrationEnd: f.registrationEnd,
+                        votingStart: f.votingStart,
+                        votingEnd: f.votingEnd,
+                        revealEnd: f.revealEnd,
+                    })
+                )
             ).to.be.revertedWithCustomError(P, "ZeroAddress");
         });
 

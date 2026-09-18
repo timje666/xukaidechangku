@@ -196,4 +196,102 @@ describe("P1 · 硬约束守卫（源码扫描）", function () {
         expect(check("/// @param x 参数说明")).to.deep.equal([]); // 合法标签
         expect(check("/// @custom:trace @openzeppelin/contracts 来源").length).to.equal(1); // 尾部包名仍命中
     });
+
+    // ============================================================
+    // 全匿名相关守卫（P5）
+    // ============================================================
+
+    /** 取某个函数的函数体（从签名起，到第一个顶格缩进的 `}`） */
+    function functionBody(src: string, signature: string): string {
+        const start = src.indexOf(signature);
+        if (start < 0) return "";
+        const end = src.indexOf("\n    }", start);
+        return end < 0 ? src.slice(start) : src.slice(start, end);
+    }
+
+    it("HC-18 · castVote 必须含匿名准入检查（★全匿名的合约层唯一防线）", function () {
+        // 依据：已登记地址直接提交投票时，tx 的 msg.sender 即该地址，
+        //      「地址 ↔ 选票」在链上公开关联，D2「隐身份」当场失效。
+        //      合约层是唯一能阻断该路径的位置，删除此检查等于取消匿名保证。
+        //      详见 Proposal.sol 合约说明 6、Errors.sol 的 MustUseRelayer 说明。
+        const file = resolve(root, "proposal", "Proposal.sol");
+        const src = stripComments(readFileSync(file, "utf8"));
+        const body = functionBody(src, "function castVote(");
+
+        expect(body, "未找到 castVote 函数体").to.not.equal("");
+        expect(
+            body.includes("isRegistered(msg.sender)"),
+            "【HC-18】castVote 缺少 isRegistered(msg.sender) 匿名准入检查"
+        ).to.equal(true);
+        expect(
+            body.includes("MustUseRelayer()"),
+            "【HC-18】castVote 缺少 MustUseRelayer 错误抛出"
+        ).to.equal(true);
+    });
+
+    it("HC-18 自检：函数体截取确实生效（注入变体必须被判定为违规）", function () {
+        const okBody = functionBody(
+            "function castVote(X) external {\n        if (R.isRegistered(msg.sender)) revert MustUseRelayer();\n    }",
+            "function castVote("
+        );
+        const badBody = functionBody(
+            "function castVote(X) external {\n        if (block.timestamp < A) revert B();\n    }",
+            "function castVote("
+        );
+        expect(okBody.includes("isRegistered(msg.sender)")).to.equal(true);
+        expect(badBody.includes("isRegistered(msg.sender)")).to.equal(false);
+        expect(badBody).to.not.equal("");
+    });
+
+    it("HC-20 · Proposal 不得引入 ERC-2771（其机制必然泄露签名者地址）", function () {
+        // 依据：实测证明经 ERC-2771 转发的交易，calldata 中必然含签名者地址
+        //      （见 test/p5.metatx.test.ts 的「身份泄露判定」用例）。
+        //      该机制的设计目标是让目标合约识别真实用户，与「隐身份」目标相反。
+        //      保留本守卫是为了防止后续维护者「为了标准化」而重新引入。
+        const file = resolve(root, "proposal", "Proposal.sol");
+        const src = stripComments(readFileSync(file, "utf8"));
+
+        expect(
+            src.includes("ERC2771Context"),
+            "【HC-20】Proposal 不得继承或引用 ERC2771Context"
+        ).to.equal(false);
+        expect(
+            src.includes("_msgSender"),
+            "【HC-20】Proposal 不得读取 _msgSender（ERC-2771 语义下它即真实用户地址）"
+        ).to.equal(false);
+        expect(
+            src.includes("trustedForwarder"),
+            "【HC-20】Proposal 不得引入可信中继声明（该机制已被证伪）"
+        ).to.equal(false);
+    });
+
+    it("HC-19 · Errors.sol 中不存在零引用的死错误", function () {
+        // 依据：死错误会让审计者误认为存在某条失败路径，而实际没有。
+        //      与死代码同样有害，且成本极低即可消除。
+        const declaredFile = resolve(root, "libs", "Errors.sol");
+        const declared = [
+            ...readFileSync(declaredFile, "utf8").matchAll(/^error\s+([A-Za-z0-9_]+)/gm),
+        ].map((m) => m[1]);
+
+        expect(declared.length, "Errors.sol 未解析到任何 error 声明，规则可能失效").to.be.greaterThan(
+            0
+        );
+
+        const others = files
+            .filter((f) => f !== declaredFile)
+            .map((f) => readFileSync(f, "utf8"));
+
+        const dead = declared.filter((name) => !others.some((src) => src.includes(name)));
+
+        expect(dead, `【HC-19】以下错误零引用，应删除或补上使用点：${dead.join(", ")}`).to.deep.equal(
+            []
+        );
+    });
+
+    it("HC-19 自检：零引用的注入错误必须被判定为死错误", function () {
+        const declared = ["UsedError", "NeverReferencedError"];
+        const sources = ["... revert UsedError(); ..."];
+        const dead = declared.filter((name) => !sources.some((s) => s.includes(name)));
+        expect(dead).to.deep.equal(["NeverReferencedError"]);
+    });
 });

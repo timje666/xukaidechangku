@@ -82,6 +82,36 @@ struct ProposalInit {
 ///      也不让一个「任何人可投票」的外部函数出现在可部署合约里。
 ///      P3 的全部状态机行为通过 `ProposalHarness` 测试。
 ///
+///      **6. `castVote` 禁止已登记地址直接提交（★全匿名的强制点，禁止放宽）**
+///      `castVote` 校验 `!isRegistered(msg.sender)`，否则 revert `MustUseRelayer()`。
+///      区分三个概念是理解本设计的关键：
+///        · `msg.sender`（原生发送者）—— 由谁发起这笔交易
+///        · 登记地址 —— 登记期写入名册的选民地址，**不得出现在任何投票交易中**
+///        · `proof.nullifier` —— 由 ZK 电路派生的假名，无法映射回身份
+///      **匿名性要求的是「登记地址不出现在链上」。** 若已登记地址自己发交易，
+///      `msg.sender` 即该地址，`地址 ↔ 选票` 形成公开关联，D2「隐身份」当场失效。
+///      而**合约层是唯一能强制拦住它的位置**——依赖前端自觉等于没有保证。
+///      该检查**不阻碍匿名路径**：第三方中继账户提交通过；一次性地址自任中继也通过
+///      （一次性地址无法关联身份）。被拒的只有「用登记地址提交」这一条。
+///
+///      **7. 为什么不用 ERC-2771 / `MinimalForwarder`（★实测证伪，禁止重新引入）**
+///      方案文档 §5.3 原选择 ERC-2771，理由是「Relayer 是全匿名的必要条件」。
+///      需要中继的判断正确，但**用 ERC-2771 实现是错的**：
+///      ERC-2771 的设计目标是让目标合约**识别出真实用户**（`_msgSender()` 返回签名者），
+///      而全匿名要求合约**无法识别用户**，两者目标相反。
+///      机制上，`ERC2771Forwarder._execute` 执行 `abi.encodePacked(data, request.from)`，
+///      且 `request.from` 本身就是 `execute()` calldata 的一部分。
+///      **实测一笔中继投票交易：`from` 为中继账户，而选民登记地址明文出现于其 calldata。**
+///      ⇒ 「强制走 ERC-2771 中继」反而以**机制保证**地址上链，与目标完全相反。
+///      ⇒ 证据见 `test/p5.metatx.test.ts` 的身份泄露判定用例；
+///        参照合约见 `harness/ERC2771LeakReference.sol`（禁止用于投票路径）。
+///      ⇒ 正确做法是**纯中继**：中继账户直接调用 `castVote(proof)`，
+///        calldata 中只含证明，不含任何地址。
+///
+///      **8. `reveal` / `finalize` 不设限**
+///      揭示期在投票结束之后，揭示内容与身份无关（nullifier 已于投票期上链），
+///      且 Q12 已定由选民自行广播揭示交易。`finalize` 无门槛以便任何人推动封存。
+///
 /// @author ChainVote
 contract Proposal is ChainVoteAccessControl {
     // ============================================================
@@ -288,6 +318,7 @@ contract Proposal is ChainVoteAccessControl {
 
     /// @notice 提交一张选票（含 ZK 成员证明校验）
     /// @dev 校验顺序是**安全关键**，不可调整：
+    ///      ⓪ 匿名准入 —— 已登记地址不得直接提交（★全匿名的强制点，见合约说明 6）
     ///      ① 时间窗（直接比较时间戳）
     ///      ② 冻结根 —— 证明所依据的 Merkle 根必须等于名册的冻结根
     ///      ③ scope —— 证明必须绑定本提案，防止跨提案重放
@@ -299,8 +330,17 @@ contract Proposal is ChainVoteAccessControl {
     ///      批量写入 `_nullifierUsed`，造成状态膨胀，并可用他人 nullifier 使其永久无法投票。
     ///      对应的不变量为 INV-9，由不变量测试守护。
     ///
+    ///      【硬约束 10 / HC-18】顺序 ⓪ 的 `isRegistered(msg.sender)` 检查**禁止删除**。
+    ///      它是合约层唯一能阻断「用登记地址直投」的位置，删除即令 D2「隐身份」失效。
+    ///      由 `test/p1.hard-constraints.test.ts` 的 HC-18 机械守护。
+    ///
     /// @param proof Semaphore 证明。`proof.message` 即选票承诺，由电路绑定、不可伪造
     function castVote(ISemaphore.SemaphoreProof calldata proof) external {
+        // ⓪ 【★全匿名强制点】禁止已登记地址直接提交
+        //    已登记地址自己发交易时 msg.sender 即该地址，地址与选票在链上形成公开关联。
+        //    放在最前：这是纯粹的入口合法性判断，失败时最省 gas。
+        if (IVoterRegistry(REGISTRY).isRegistered(msg.sender)) revert MustUseRelayer();
+
         if (block.timestamp < VOTING_START) revert VotingNotOpen();
         if (block.timestamp >= VOTING_END) revert VotingClosed();
 
