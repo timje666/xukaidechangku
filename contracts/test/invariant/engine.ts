@@ -75,6 +75,33 @@ export interface Action {
     run: (rng: Rng) => Promise<void>;
 }
 
+/** 单次不变量的破坏记录 */
+export interface InvariantFailure {
+    /** 不变量编号 */
+    invariant: string;
+    /** 不变量名称 */
+    name: string;
+    /** 第几轮 */
+    round: number;
+    /** 轮内第几步 */
+    step: number;
+    /** 全局步序号（0 起，用于最小化重放） */
+    globalStep: number;
+    /** 触发该失败的动作名 */
+    action: string;
+    /**
+     * 该步**之前**的最近 N 个动作名。
+     *
+     * 这是「无收缩能力」的主要缓解手段：失败时不必回看 32768 步日志，
+     * 只需看这个窗口——破坏往往由紧邻的若干个动作组合造成。
+     */
+    precedingActions: string[];
+    /** 失败详情 */
+    detail: string;
+    /** 已执行的完整动作序列（截取到失败点），供最小化器使用 */
+    sequenceUpToFailure: string[];
+}
+
 /** 单次战役的统计结果 */
 export interface RunStats {
     seed: number;
@@ -87,6 +114,10 @@ export interface RunStats {
     perInvariant: Record<string, number>;
     /** 战役结束时的阶段分布，用于确认流程确实被穿越 */
     phaseHits: Record<number, number>;
+    /** 完整动作序列（名称），供最小化器重放 */
+    actionSequence: string[];
+    /** 收集模式下捕获的不变量破坏（failFast 模式下至多 1 条） */
+    failures: InvariantFailure[];
 }
 
 /** 战役配置 */
@@ -113,7 +144,19 @@ export interface CampaignConfig {
      * （若 512×64 次动作里有 90% 停在 REGISTRATION，说明权重设计有问题）。
      */
     refresh: () => Promise<number>;
+    /**
+     * 失败处理模式：
+     * · `failFast`（默认）—— 首次破坏即抛出，附坐标与复现命令
+     * · `collect` —— 记录全部破坏（最多 `maxFailures` 条）后继续跑完，
+     *   便于一次运行看到所有破坏点，也便于最小化器拿到完整序列
+     */
+    mode?: "failFast" | "collect";
+    /** 收集模式下最多记录的破坏条数（默认 20） */
+    maxFailures?: number;
 }
+
+/** 失败定位时保留的前置动作窗口长度 */
+const PRECEDING_WINDOW = 8;
 
 /** 可复现的默认种子 */
 export const DEFAULT_SEED = 0xc0ffee;
@@ -175,6 +218,8 @@ function pickWeighted(rng: Rng, actions: Action[]): Action {
  */
 export async function runInvariantCampaign(cfg: CampaignConfig): Promise<RunStats> {
     const rng = mulberry32(cfg.seed);
+    const mode = cfg.mode ?? "failFast";
+    const maxFailures = cfg.maxFailures ?? 20;
 
     const stats: RunStats = {
         seed: cfg.seed,
@@ -184,6 +229,8 @@ export async function runInvariantCampaign(cfg: CampaignConfig): Promise<RunStat
         perAction: {},
         perInvariant: {},
         phaseHits: {},
+        actionSequence: [],
+        failures: [],
     };
 
     console.log(
@@ -191,17 +238,21 @@ export async function runInvariantCampaign(cfg: CampaignConfig): Promise<RunStat
             `  │ seed = ${cfg.seed} (0x${cfg.seed.toString(16)})` +
             `${process.env.INV_SEED ? "  [由 INV_SEED 覆盖]" : ""}\n` +
             `  │ ${cfg.rounds} 轮 × ${cfg.actionsPerRound} 动作 = ${cfg.rounds * cfg.actionsPerRound} 次\n` +
+            `  │ 模式 = ${mode}\n` +
             `  │ 复现命令: INV_SEED=${cfg.seed} npx hardhat test test/p6.invariants.test.ts\n` +
             `  └──────────────────────────────────────────────`
     );
 
     for (let round = 0; round < cfg.rounds; round++) {
         for (let step = 0; step < cfg.actionsPerRound; step++) {
+            const globalStep = stats.totalActions;
+
             // 选动作前刷新链上视图，使 weight() 能基于最新的阶段/时间决策
             const phaseNow = await cfg.refresh();
             stats.phaseHits[phaseNow] = (stats.phaseHits[phaseNow] ?? 0) + 1;
 
             const action = pickWeighted(rng, cfg.actions);
+            stats.actionSequence.push(action.name);
 
             const slot = (stats.perAction[action.name] ??= { ok: 0, revert: 0 });
 
@@ -209,7 +260,12 @@ export async function runInvariantCampaign(cfg: CampaignConfig): Promise<RunStat
             let failure: unknown;
 
             try {
-                await action.run(rng);
+                // ★ 每个步使用**独立派生**的随机源：`mulberry32(seed ^ 步序号)`。
+                //   而不是共享一条 rng 流。原因是收缩（最小化）：最小化器会删除序列中的
+                //   某个动作并重放剩余动作，若共享 rng 流，删除一个动作会让后续所有动作
+                //   拿到错位的随机值——参数全变，失败可能不再复现，最小化无法进行。
+                //   独立派生后，每个步的随机参数只取决于它自己的序号，与「前后有多少动作」无关。
+                await action.run(mulberry32((cfg.seed ^ (globalStep * 0x9e3779b9)) >>> 0));
             } catch (e) {
                 reverted = true;
                 failure = e;
@@ -230,10 +286,11 @@ export async function runInvariantCampaign(cfg: CampaignConfig): Promise<RunStat
             stats.totalActions++;
 
             // 【硬约束 8】每次动作后无条件检查全部不变量
-            await assertAll(cfg.invariants, stats, {
+            await assertAll(cfg.invariants, stats, mode, maxFailures, {
                 seed: cfg.seed,
                 round,
                 step,
+                globalStep,
                 action: action.name,
                 // 对抗性动作的 revert 是预期内的；但它仍可能留下中间态，故一并记录
                 note: reverted && failure instanceof Error ? failure.message.slice(0, 200) : undefined,
@@ -244,17 +301,31 @@ export async function runInvariantCampaign(cfg: CampaignConfig): Promise<RunStat
     return stats;
 }
 
+/** assertAll 的定位上下文 */
+interface FailureContext {
+    seed: number;
+    round: number;
+    step: number;
+    globalStep: number;
+    action: string;
+    note?: string;
+}
+
 /**
  * 无条件执行全部不变量断言。
  *
  * @param invariants 不变量清单
- * @param stats 统计对象（用于记录每条被检查的次数）
+ * @param stats 统计对象（记录每条被检查的次数，以及捕获到的破坏）
+ * @param mode `failFast` 首次破坏即抛；`collect` 记录后继续
+ * @param maxFailures 收集模式下的记录上限
  * @param where 失败时用于定位的坐标信息
  */
 async function assertAll(
     invariants: Invariant[],
     stats: RunStats,
-    where: { seed: number; round: number; step: number; action: string; note?: string }
+    mode: "failFast" | "collect",
+    maxFailures: number,
+    where: FailureContext
 ): Promise<void> {
     for (const inv of invariants) {
         stats.perInvariant[inv.id] = (stats.perInvariant[inv.id] ?? 0) + 1;
@@ -263,14 +334,67 @@ async function assertAll(
             await inv.check();
         } catch (e) {
             const detail = e instanceof Error ? e.message : String(e);
+
+            if (mode === "collect") {
+                if (stats.failures.length < maxFailures) {
+                    stats.failures.push({
+                        invariant: inv.id,
+                        name: inv.name,
+                        round: where.round,
+                        step: where.step,
+                        globalStep: where.globalStep,
+                        action: where.action,
+                        precedingActions: stats.actionSequence.slice(
+                            Math.max(0, stats.actionSequence.length - PRECEDING_WINDOW)
+                        ),
+                        detail,
+                        sequenceUpToFailure: stats.actionSequence.slice(),
+                    });
+                }
+                continue; // 继续检查其余不变量，并继续跑后续动作
+            }
+
             throw new Error(
                 `\n【不变量被破坏】${inv.id} ${inv.name}\n` +
-                    `  坐标  : seed=${where.seed} round=${where.round} step=${where.step}\n` +
+                    `  坐标  : seed=${where.seed} round=${where.round} step=${where.step} ` +
+                    `(globalStep=${where.globalStep})\n` +
                     `  触发于: 动作「${where.action}」之后\n` +
                     (where.note ? `  动作备注: ${where.note}\n` : "") +
+                    `  前置动作: ${stats.actionSequence
+                        .slice(Math.max(0, stats.actionSequence.length - PRECEDING_WINDOW))
+                        .join(" → ")}\n` +
                     `  复现  : INV_SEED=${where.seed} npx hardhat test test/p6.invariants.test.ts\n` +
+                    `  最小化: 见 test/invariant/minimizer.ts（collect 模式 + 窗口删除式收缩）\n` +
                     `  详情  : ${detail}`
             );
         }
     }
+}
+
+/**
+ * 打印收集模式下的失败摘要。
+ * @param stats 战役统计
+ */
+export function reportFailures(stats: RunStats): void {
+    if (stats.failures.length === 0) return;
+
+    const byInv = new Map<string, InvariantFailure[]>();
+    for (const f of stats.failures) {
+        const arr = byInv.get(f.invariant) ?? [];
+        arr.push(f);
+        byInv.set(f.invariant, arr);
+    }
+
+    console.log(`\n  ┌─ 不变量破坏摘要（共 ${stats.failures.length} 条）─────────`);
+    for (const [id, list] of byInv) {
+        console.log(`  │ ${id} ${list[0].name}  ×${list.length}`);
+        for (const f of list.slice(0, 3)) {
+            console.log(
+                `  │   · globalStep=${f.globalStep} 动作「${f.action}」之后` +
+                    `\n  │     前置: ${f.precedingActions.join(" → ")}`
+            );
+        }
+        if (list.length > 3) console.log(`  │   · …另 ${list.length - 3} 条`);
+    }
+    console.log(`  └────────────────────────────────────────────\n`);
 }

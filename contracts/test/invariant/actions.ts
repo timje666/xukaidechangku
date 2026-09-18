@@ -461,10 +461,33 @@ export function buildActions(w: World): Action[] {
                 const next = targets.find((x) => x > t);
                 if (next === undefined) return;
 
-                if (rng() < 0.5) {
+                // ★ 按阶段区分推进策略（实测教训）
+                //
+                // 首版对所有阶段一视同仁：50% 概率直接跳到下一个边界。
+                // 结果是**投票期平均只持续 1~2 步**就被推走——实测一次 80 步的小战役里，
+                // 阶段分布为 {REGISTRATION:7, IDLE:4, VOTING:1, REVEAL:2, ...}，
+                // `castVote` 一次都没被选中，而 `noop` 空转了 65 步。
+                //
+                // 第二版改为「可动作阶段一律小步前进」，又走向另一个极端：
+                // 投票期（4 小时）需要几十步才能走完，生命周期拉得过长，
+                // 4096 步里只能覆盖个位数的生命周期——**覆盖广度崩塌**，
+                // 主测试的 `lifecycleCount > 3` 断言因此失败（该断言正是为此存在）。
+                //
+                // 正确的语义是**混合策略**：可动作阶段以低概率直接跳边界（快速收尾），
+                // 多数情况小步前进（保留动作机会）；空档期则相反。
+                //
+                // ⚠️ rng 调用次数**固定为 2 次**（不随分支变化）。若调用次数随分支变化，
+                // 重放时的随机流会与首次运行错位，最小化器将无法复现失败。
+                const phase = w.view.phase;
+                const isActionPhase = phase === PHASE.VOTING || phase === PHASE.REVEAL;
+
+                const jumpProbability = isActionPhase ? 0.2 : 0.7;
+                const shouldJump = rng() < jumpProbability;
+                const step = BigInt(300 + Math.floor(rng() * 1500)); // 5~30 分钟
+
+                if (shouldJump) {
                     await time.increaseTo(next);
                 } else {
-                    const step = BigInt(60 + Math.floor(rng() * 1800));
                     await time.increaseTo(t + step > next ? next : t + step);
                 }
             },

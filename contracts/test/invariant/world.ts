@@ -225,6 +225,93 @@ function freshChecks(): World["checks"] {
 }
 
 /**
+ * 追踪状态的快照 / 恢复 —— 供最小化器使用。
+ *
+ * **为什么链与链下必须一起回滚**：
+ * 最小化重放时若只回滚 EVM（`evm_revert`）而不回滚链下追踪，`nextNullifier()` /
+ * `nextCommitment()` 的计数器会继续递增，重放产生的票据参数与首次运行**不同**，
+ * 于是失败不再复现——最小化会误判为「该动作可删」并越删越离谱。
+ * 两者必须严格同步。
+ *
+ * 用 `structuredClone` 而非 JSON：追踪数据含 `bigint`，JSON 无法序列化。
+ */
+export function captureTracking(w: World): unknown {
+    return structuredClone({
+        registeredAddresses: w.registeredAddresses,
+        registeredCommitments: w.registeredCommitments,
+        frozenRootSnapshot: w.frozenRootSnapshot,
+        rootAfterRegistrationEnd: w.rootAfterRegistrationEnd,
+        castedBallots: w.castedBallots,
+        acceptedBallots: w.acceptedBallots,
+        rejectedCommitments: w.rejectedCommitments,
+        failedNullifiers: w.failedNullifiers,
+        finalizeOkCount: w.finalizeOkCount,
+        maxPhase: w.maxPhase,
+        countsAfterFinalize: w.countsAfterFinalize,
+        resultHashAfterFinalize: w.resultHashAfterFinalize,
+        signerRegistered: w.signerRegistered,
+        commitmentSeq: w.commitmentSeq,
+        saltSeq: w.saltSeq,
+        nullifierSeq: w.nullifierSeq,
+        addressSeq: w.addressSeq,
+        lifecycleCount: w.lifecycleCount,
+        cumulative: w.cumulative,
+        view: w.view,
+        checks: w.checks,
+    });
+}
+
+/**
+ * 恢复追踪状态（与 `captureTracking` 配对）。
+ *
+ * ★ 必须**深拷贝**再赋值，不能 `Object.assign(w, snap)`：
+ * `snap` 是在窗口起点一次性 `structuredClone` 出来的快照对象，而动作运行时会
+ * `w.castedBallots.push(...)`、`w.checks.marksUpto++` 等——这些操作会**就地修改**
+ * `w.castedBallots` / `w.checks` 指向的数组/对象。若 `applyTracking` 只是把同一批
+ * 引用拷回 `w`，那么第一次重放后，快照对象本身就被污染了；下一次 `applyWorld` 会
+ * 「复位」到一个已含残留票据/游标的错误状态，于是同一序列第二次重放行为不同——
+ * 最小化器的 `finalVerified` 自检随之失败、且确定性自检（首轮两次重放）也变得不可信。
+ * 深拷贝能保证 `worldSnap` 永远只读，每次 apply 都得到一份全新的初态副本。
+ */
+export function applyTracking(w: World, snap: unknown): void {
+    Object.assign(w, structuredClone(snap));
+}
+
+/**
+ * 完全重置世界状态，用于**最小化重放**的起点。
+ *
+ * 与 `resetTrackingForNewLifecycle` 的关键区别：**同时复位所有计数器**。
+ *
+ * @param w 世界状态
+ */
+export function resetAllForReplay(w: World): void {
+    w.registeredAddresses = [];
+    w.registeredCommitments = [];
+    w.frozenRootSnapshot = null;
+    w.rootAfterRegistrationEnd = null;
+    w.castedBallots = [];
+    w.acceptedBallots = [];
+    w.rejectedCommitments = [];
+    w.failedNullifiers = [];
+    w.finalizeOkCount = 0;
+    w.maxPhase = 0;
+    w.countsAfterFinalize = null;
+    w.resultHashAfterFinalize = null;
+    w.signerRegistered = false;
+
+    // 计数器必须复位（否则重放参数错位）
+    w.commitmentSeq = 0;
+    w.saltSeq = 0;
+    w.nullifierSeq = 0;
+    w.addressSeq = 0;
+
+    w.lifecycleCount = 1;
+    w.cumulative = { registered: 0, casted: 0, accepted: 0, rejected: 0 };
+    w.view = { phase: 0, timestamp: 0n, frozen: false, finalized: false, rosterSize: 0n };
+    w.checks = freshChecks();
+}
+
+/**
  * 为一个新生命周期重置全部追踪状态。
  *
  * 【关键】**`maxPhase` 必须重置为 0**：INV-5（阶段单调）比较的是当前 phase
