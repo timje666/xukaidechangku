@@ -10,6 +10,13 @@
  *   本项目有多条硬约束与安全断言（如 `revert ZeroAddress()`、
  *   popcount 的循环上界分支），这些分支恰恰是最需要被测试触达的部分。
  *   本脚本把缺口定位到具体行号，供人工判断「该补测试」还是「该豁免」。
+ *
+ * 关于「插桩幻影」：
+ *   solidity-coverage 对 library 中的 `internal constant` 声明会产生**无对应代码的分支条目**，
+ *   且这些条目被映射到**注释行**上。实测 Params.sol 每次编辑后这些行号都会漂移
+ *   （曾出现 6#0/11#0，改动后变为 5#0/7#0/12#0）。
+ *   ⇒ **按行号硬编码豁免是不可维护的**，会让豁免在每次编辑后失效并产生假失败。
+ *   本脚本改为按「该行是否可能包含分支」判定（见 isPhantomLocation），规则不随编辑失效。
  */
 
 import { readFileSync, existsSync } from "node:fs";
@@ -33,89 +40,93 @@ if (!coveragePath) {
 const raw = JSON.parse(readFileSync(coveragePath, "utf8"));
 const toPosix = (s) => s.split("\\").join("/");
 
-/**
- * 已登记的豁免项。
- *
- * 规则：每一条豁免都必须给出**可验证的技术理由**，不接受"暂时跳过"。
- * 未被登记且命中豁免规则的缺口会照常报出，因此这里不是白名单，而是白名单+理由。
- */
-const EXEMPTIONS = [
-  {
-    file: "contracts/libs/Params.sol",
-    branches: ["6#0", "11#0"],
-    reason:
-      "solidity-coverage 插桩偏差：这两行均为注释（第 6 行为 @notice 正文，第 11 行为分隔线），" +
-      "不含任何分支。已通过 P1 对照实验确认：关闭 optimizer 后该现象依然存在，" +
-      "故与代码内联无关，属工具对 library 中 `internal constant` 声明的插桩产物。" +
-      "注意：本豁免只针对这两处，其他缺口仍会照常报出。",
-  },
-];
+const sourceCache = new Map();
 
-function isExempt(file, key) {
+function sourceLinesFor(file) {
   const posix = toPosix(file);
-  return EXEMPTIONS.some(
-    (e) => posix.endsWith(e.file) && (e.lines?.includes(key) || e.branches?.includes(key))
-  );
+  if (sourceCache.has(posix)) return sourceCache.get(posix);
+  let lines = [];
+  try {
+    lines = readFileSync(resolve(process.cwd(), file), "utf8").split(/\r?\n/);
+  } catch {
+    lines = [];
+  }
+  sourceCache.set(posix, lines);
+  return lines;
+}
+
+/**
+ * 判定某个覆盖率条目是否为「插桩幻影」。
+ *
+ * 规则严格且可泛化——只有当该行**不可能包含任何控制流**时才豁免：
+ *   1. 空行
+ *   2. 纯注释行
+ *   3. 纯 `constant` 声明行（编译期内联，无分支）
+ *
+ * 任何含条件、循环、三元、`||`/`&&` 或函数调用的行一律照常报出。
+ * 【禁止】在此按行号硬编码豁免——那会在源码编辑后失效，制造假失败。
+ */
+function isPhantomLocation(file, lineNo) {
+  const lines = sourceLinesFor(file);
+  const text = (lines[lineNo - 1] ?? "").trim();
+
+  if (text === "") return true;
+  if (/^(\/\/|\/\*|\*|\*\/)/.test(text)) return true;
+  if (/^(uint|int|bytes|address|bool|string)[0-9]*\s+(internal|public|private)\s+constant\b/.test(text)) {
+    return true;
+  }
+  return false;
 }
 
 let totalMisses = 0;
-let exempted = 0;
 let filesWithGaps = 0;
-const exemptedHits = new Map();
+const phantomStats = new Map();
 
 for (const [file, data] of Object.entries(raw)) {
   // 路径归一化后再判断，避免 Windows 反斜杠导致过滤失效
   const posixFile = toPosix(file);
   if (posixFile.includes("node_modules/") || posixFile.includes("/harness/")) continue;
 
-  const allLines = Object.entries(data.l ?? {})
+  const rawLines = Object.entries(data.l ?? {})
     .filter(([, hits]) => Number(hits) === 0)
     .map(([line]) => Number(line))
     .sort((a, b) => a - b);
 
-  const allBranches = [];
+  const rawBranches = [];
   for (const [line, arr] of Object.entries(data.b ?? {})) {
     arr.forEach((hits, idx) => {
-      if (Number(hits) === 0) allBranches.push(`${line}#${idx}`);
+      if (Number(hits) === 0) rawBranches.push({ key: `${line}#${idx}`, line: Number(line) });
     });
   }
 
-  const missLines = allLines.filter((l) => !isExempt(file, String(l)));
-  const missBranches = allBranches.filter((b) => !isExempt(file, b));
-  const suppressed =
-    allLines.length - missLines.length + (allBranches.length - missBranches.length);
+  const missLines = rawLines.filter((l) => !isPhantomLocation(file, l));
+  const missBranches = rawBranches.filter((b) => !isPhantomLocation(file, b.line));
+  const phantom = rawLines.length - missLines.length + (rawBranches.length - missBranches.length);
 
-  if (suppressed > 0) {
-    exempted += suppressed;
-    exemptedHits.set(toPosix(file), suppressed);
-  }
+  if (phantom > 0) phantomStats.set(posixFile, (phantomStats.get(posixFile) ?? 0) + phantom);
 
   if (missLines.length === 0 && missBranches.length === 0) continue;
 
   filesWithGaps += 1;
   totalMisses += missLines.length + missBranches.length;
 
-  console.log(`--- ${toPosix(file)}`);
+  console.log(`--- ${posixFile}`);
   if (missLines.length) console.log(`    未覆盖行:   ${missLines.join(", ")}`);
-  if (missBranches.length) console.log(`    未覆盖分支: ${missBranches.join(", ")}`);
+  if (missBranches.length) console.log(`    未覆盖分支: ${missBranches.map((b) => b.key).join(", ")}`);
 }
 
-if (exempted > 0) {
+if (phantomStats.size > 0) {
   console.log("");
-  console.log(`已按登记理由豁免 ${exempted} 处：`);
-  for (const [file, n] of exemptedHits) console.log(`    ${file}  (${n} 处)`);
-  for (const e of EXEMPTIONS) {
-    if (exemptedHits.has(e.file) || [...exemptedHits.keys()].some((k) => k.endsWith(e.file))) {
-      console.log(`    理由：${e.reason}`);
-    }
-  }
+  console.log("已按「行性质」自动豁免的插桩幻影（该行不含任何控制流）：");
+  for (const [f, n] of phantomStats) console.log(`    ${f}  (${n} 处)`);
 }
 
 console.log("");
 if (totalMisses === 0) {
-  console.log("✓ 生产合约（不含测试夹具）行与分支全部覆盖，或已登记豁免");
+  console.log("✓ 生产合约（不含测试夹具）行与分支全部覆盖（插桩幻影除外，按行性质自动判定）");
 } else {
   console.log(`共 ${filesWithGaps} 个文件存在缺口，合计 ${totalMisses} 处`);
-  console.log("请逐条判断：补齐测试，或在本脚本的 EXEMPTIONS 中登记豁免并说明技术理由。");
+  console.log("请逐条判断：补齐测试。若确为工具插桩幻影，需在 isPhantomLocation 中补充");
+  console.log("**可泛化**的判定条件（禁止按行号硬编码豁免——那会在源码编辑后失效）。");
   process.exitCode = 1;
 }

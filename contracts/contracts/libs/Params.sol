@@ -52,6 +52,11 @@ library Params {
     ///      50 地址 ≈ 3–5M gas，留足余量避免超出单笔交易 gas 上限
     uint256 internal constant MAX_REGISTER_BATCH = 50;
 
+    /// @notice 单笔揭示的票数上限
+    /// @dev 单条揭示含一次 Poseidon 校验与计票，约 6–10 万 gas，
+    ///      100 条约 6–10M gas，安全落在单笔交易 gas 上限内
+    uint256 internal constant MAX_REVEAL_BATCH = 100;
+
     // ============================================================
     // 4. 揭示结果码  —— 来源：Q9（未揭示票作废并公示）
     // ============================================================
@@ -70,8 +75,11 @@ library Params {
     // 6. 域分隔符  —— 防止跨提案 / 跨链重放
     // ============================================================
 
+    /// @notice scope 的域分隔标签
+    /// @dev 选票承诺的域分隔由 `scopeOf()` 提供（同一提案内 SCOPE 唯一），
+    ///      **不再单设** `BALLOT_COMMITMENT_DOMAIN` —— 那是冗余的第二套域常量，
+    ///      两套并存只会造成「到底用哪一个」的歧义。
     bytes32 internal constant SCOPE_DOMAIN = keccak256("ChainVote.Scope.v1");
-    bytes32 internal constant BALLOT_COMMITMENT_DOMAIN = keccak256("ChainVote.BallotCommitment.v1");
     bytes32 internal constant RESULT_HASH_DOMAIN = keccak256("ChainVote.Result.v1");
 
     /// @notice 计算本提案的 ZK scope
@@ -104,6 +112,10 @@ library Params {
         uint64 votingEnd,
         uint64 revealEnd
     ) internal pure returns (bool ok) {
+        // 必须先判「登记期结束时刻晚于当前时刻」，否则下一行的减法会下溢，
+        // 抛出的将是算术 panic（0x11）而非本项目的具名错误，前端无法映射为可读文案
+        if (registrationEnd <= now_) return false;
+
         // 四个时间点严格递增
         if (!(registrationEnd < votingStart)) return false;
         if (!(votingStart < votingEnd)) return false;

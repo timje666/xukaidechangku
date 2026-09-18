@@ -24,37 +24,35 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, resolve, basename } from "node:path";
 
 /**
- * 已登记的**预期**库链接依赖。
+ * 已登记的**预期**库（按库名登记，而非按合约登记）。
  *
- * 规则：每一条都必须给出可验证的技术理由，且**必须是业务上无法回避的**。
- * 未被登记且存在链接引用的合约一律判为失败——目的是拦住「本可内联却误用了
- * public 版库」这类会显著增加部署复杂度的写法。
+ * 为什么按库而非按合约：
+ *   链接依赖来自「调用了哪个 public 库函数」，与调用方是哪份合约无关。
+ *   按合约登记会随合约数量线性膨胀（Proposal、ProposalHarness、VoterRegistry、
+ *   DependencyProbe…），且新增合约时反复触发误报。
+ *   按库登记只需在**引入新库**时更新一次，仍能拦住真正需要警惕的情况。
+ *
+ * 规则：每条都必须给出可验证的技术理由，且必须是业务上无法回避的。
+ * 未被登记却出现在 linkReferences 中的库一律判为失败。
  */
-const EXPECTED_LINKS = [
+const EXPECTED_LIBS = [
   {
-    contract: "DependencyProbe",
     lib: "PoseidonT3",
     reason:
-      "L5 实测结论：poseidon-solidity 的 PoseidonT3.hash 是 public 函数，" +
-      "而任何在链上维护 Semaphore 兼容 Merkle 树的合约都必须调用它来哈希内部节点。" +
-      "即使选用 InternalLeanIMT（internal，已内联）也无法消除该依赖。",
+      "Semaphore 兼容 Merkle 树的 2 输入哈希。poseidon-solidity 的 PoseidonT3.hash 是 public，" +
+      "无法内联。VoterRegistry 每次 _insert 与 DependencyProbe 都依赖它。",
   },
   {
-    contract: "VoterRegistry",
-    lib: "PoseidonT3",
+    lib: "PoseidonT4",
     reason:
-      "业务合约，链接依赖**不可回避**：VoterRegistry 用 LeanIMT 在链上维护名册树，" +
-      "每次 _insert 都要调用 PoseidonT3.hash 计算内部节点。" +
-      "唯一能消除该依赖的方式是改为「链下建树 + 仅上链根」，" +
-      "但 L5 实测显示链上建树成本可接受（每叶约 5.9 万 gas，约 350 USD / 10 万选民），" +
-      "没有理由为此放弃「名册根由合约推导」的强安全模型（详见 docs/L5-依赖验证报告.md §6）。",
+      "选票承诺的 3 输入哈希：Poseidon4([ballotMask, salt, SCOPE])。" +
+      "第三个输入是提案域分隔（SCOPE 全局唯一），用于防止同一选民在不同提案间因盐复用而被关联。" +
+      "若改用 2 输入版本会失去该防护，故必须引入 T4。" +
+      "同样因 hash 是 public 而无法内联，链接不可回避。",
   },
 ];
 
-/**
- * 已登记豁免：允许存在库链接但**不要求**在部署时链接的合约。
- * 业务合约（contracts/ 下自研部分）一律不允许进入此列表。
- */
+/** 已登记豁免：允许存在库链接但无需在部署时链接的合约（业务合约不得进入此列表） */
 const EXEMPTIONS = [];
 
 function walk(dir, out = []) {
@@ -84,6 +82,7 @@ if (!root) {
 const linked = [];
 const clean = [];
 const oversized = [];
+const seenLibs = new Set();
 const LIMIT = 24576;
 
 for (const file of walk(root)) {
@@ -101,7 +100,8 @@ for (const file of walk(root)) {
   const libs = [];
   for (const [srcFile, libsInFile] of Object.entries(refs)) {
     for (const libName of Object.keys(libsInFile)) {
-      libs.push(`${libName} (${srcFile})`);
+      libs.push({ lib: libName, src: srcFile });
+      seenLibs.add(libName);
     }
   }
 
@@ -111,6 +111,8 @@ for (const file of walk(root)) {
   const size = (bc.length - 2) / 2;
   if (size > LIMIT) oversized.push({ name, size });
 }
+
+const knownLib = (n) => EXPECTED_LIBS.some((e) => e.lib === n);
 
 console.log("库链接依赖检查");
 console.log(`  已扫描合约: ${clean.length + linked.length}`);
@@ -124,11 +126,11 @@ if (linked.length) {
   console.log("");
   console.log(`  ⚠️ 需要外部库链接: ${linked.length} 个`);
   for (const { name, libs } of linked) {
-    const expected = EXPECTED_LINKS.some((e) => e.contract === name);
-    const exempt = EXEMPTIONS.some((e) => e.contract === name);
-    const mark = expected ? "ℹ️ 已登记" : exempt ? "ℹ️ 已豁免" : "✗ 未登记";
-    console.log(`       ${mark}  ${name}`);
-    for (const l of libs) console.log(`           → ${l}`);
+    const bad = libs.filter((l) => !knownLib(l.lib));
+    console.log(`       ${bad.length === 0 ? "ℹ️ 已登记" : "✗ 含未登记库"}  ${name}`);
+    for (const l of libs) {
+      console.log(`           → ${l.lib}${knownLib(l.lib) ? "" : "  ← 未登记"}`);
+    }
   }
 }
 
@@ -139,44 +141,33 @@ if (oversized.length) {
 }
 
 console.log("");
-const unexpected = linked.filter((l) => !EXPECTED_LINKS.some((e) => e.contract === l.name));
-const exempted = linked.filter((l) => EXEMPTIONS.some((e) => e.contract === l.name));
+const unknownLibs = [...seenLibs].filter((n) => !knownLib(n));
 
-if (linked.length > 0) {
-  for (const e of EXPECTED_LINKS) {
-    if (linked.some((l) => l.name === e.contract)) {
-      console.log(`  ℹ️ 预期链接 [${e.contract}] → ${e.lib}`);
-      console.log(`     ${e.reason}`);
+if (unknownLibs.length === 0 && oversized.length === 0) {
+  console.log("✓ 全部引用的库均已登记，且无超限合约");
+  if (seenLibs.size > 0) {
+    console.log("");
+    console.log("已引用的库：");
+    for (const lib of seenLibs) {
+      const e = EXPECTED_LIBS.find((x) => x.lib === lib);
+      console.log(`  · ${lib}`);
+      console.log(`    ${e.reason}`);
     }
-  }
-}
-
-const problems = unexpected.length + oversized.length;
-if (problems === 0) {
-  console.log("");
-  console.log("✓ 全部合约的库链接依赖均已登记，且无超限合约");
-  if (linked.length > 0) {
     console.log("");
     console.log("⚠️ 部署顺序要求（P8 必须遵守）：");
-    console.log("   1. 先部署 PoseidonT3 库合约并记录地址");
-    console.log("   2. 再部署依赖它的业务合约，构造工厂时传入 { libraries: { PoseidonT3: <addr> } }");
-    console.log("   3. 区块浏览器验证业务合约时，一并提供 PoseidonT3 地址");
+    console.log(`   1. 先部署以下库合约并记录地址：${[...seenLibs].join("、")}`);
+    console.log("   2. 再部署业务合约，构造工厂时传入 { libraries: { <库名>: <addr> } }");
+    console.log("   3. 区块浏览器验证业务合约时，一并提供上述库地址");
   }
 } else {
-  if (unexpected.length > 0) {
-    console.error("✗ 存在**未登记**的库链接依赖：");
-    for (const { name, libs } of unexpected) {
-      console.error(`     ${name} → ${libs.join(", ")}`);
-    }
-    console.error("   若为业务上不可回避，请在 EXPECTED_LINKS 中登记并说明理由；");
+  if (unknownLibs.length > 0) {
+    console.error(`✗ 存在**未登记**的库链接依赖：${unknownLibs.join("、")}`);
+    console.error("   若为业务上不可回避，请在 EXPECTED_LIBS 中登记并说明理由；");
     console.error("   若是误用了 public 版库，请改用 internal 版本以避免部署复杂度。");
-  }
-  if (oversized.length > 0) {
-    console.error("✗ 存在超过 EIP-170 上限（24576 B）的合约");
   }
   process.exit(1);
 }
 
-if (exempted.length > 0) {
+if (EXEMPTIONS.length > 0) {
   for (const e of EXEMPTIONS) console.log(`  豁免理由 [${e.contract}]: ${e.reason}`);
 }

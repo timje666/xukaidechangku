@@ -27,7 +27,19 @@ error AlreadyVoted();
 /// @notice ZK 证明验证失败
 error InvalidProof();
 
+// ---------- 投票（P3） ----------
+/// @notice 投票期尚未开始
+error VotingNotOpen();
+/// @notice 投票期已结束
+error VotingClosed();
+/// @notice 该承诺已投过票
+error CommitmentAlreadyCast();
+
 // ---------- 揭示 ----------
+/// @notice 揭示期尚未开始
+error RevealNotOpen();
+/// @notice 揭示期已结束
+error RevealClosed();
 /// @notice 该承诺未曾于投票期上链 —— ★F-02 关键防护，禁止删除
 error CommitmentNotCast();
 /// @notice 明文与承诺哈希不匹配
