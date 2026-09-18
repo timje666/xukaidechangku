@@ -23,12 +23,19 @@ describe("P3 · Proposal 状态机", function () {
         await pt4.waitForDeployment();
         const pt4Addr = await pt4.getAddress();
 
+        // P3 不涉及 ZK 校验，但仍需提供非零的 verifier 地址
+        // （ProposalInit 自 P4 起将 verifier 作为必填字段）
+        const MV = await ethers.getContractFactory("MockVerifier");
+        const mockVerifier = await MV.deploy();
+        await mockVerifier.waitForDeployment();
+
         const now = BigInt(await time.latest());
         // 注意：部署交易会使 block.timestamp 前进，故每段窗口都必须比下限留出余量，
         // 否则「registrationEnd - now_」会恰好等于下限而差 1 秒被判非法。
         const init = {
             proposalId: 1n,
             registry: alice.address,
+            verifier: await mockVerifier.getAddress(),
             metadataCid: ethers.id("chainvote-meta"),
             registrationEnd: now + 2n * HOUR,
             votingStart: now + 4n * HOUR,

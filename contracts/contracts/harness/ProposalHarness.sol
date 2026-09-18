@@ -40,4 +40,13 @@ contract ProposalHarness is Proposal {
             _recordBallot(nullifiers[i], commitments[i]);
         }
     }
+
+    /// @notice 暴露 `Proposal._hash` 供公式断言（仅测试用）
+    /// @dev 真实环境里该函数无法被独立观测，其正确性只能靠「合法证明被接受」间接印证。
+    ///      暴露出来后可与其上游定义逐值比对，把这类错误拦在本地。
+    /// @param x 待哈希值
+    /// @return 落在 SNARK 标量域内的哈希值
+    function hashScalar(uint256 x) external pure returns (uint256) {
+        return _hash(x);
+    }
 }

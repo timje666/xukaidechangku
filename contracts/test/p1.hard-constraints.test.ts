@@ -146,4 +146,54 @@ describe("P1 · 硬约束守卫（源码扫描）", function () {
         expect(pauseRule.pattern.test(stripped)).to.equal(true); // 代码部分仍被检出
         expect(pauserRule.pattern.test(stripped)).to.equal(false); // 注释部分被正确剥离
     });
+
+    // ============================================================
+    // 注释感知规则 —— 必须读取「未剥离注释」的源码
+    // ============================================================
+
+    it("HC-17 · NatSpec 注释中不得出现 @包名（会被解析为文档标签导致编译失败）", function () {
+        // 实测：在 `///` 注释中写 `@zk-kit/lean-imt`，Solidity 把它当作文档标签，
+        // 报 DocstringParsingError 并指向整个注释块起点，排错成本高。
+        // 本项目会频繁在注释里引用依赖包名，故设为硬约束。
+        const CODEX = /^\s*(?:\/\/\/|\/\*|\*)\s/;
+        const PKG = /@[A-Za-z0-9_.-]+\//g;
+        const ALLOWED_TAG = /^@(title|notice|dev|param|return|author|inheritdoc|custom|event|error)\b/;
+
+        const violations: string[] = [];
+        for (const file of files) {
+            const lines = readFileSync(file, "utf8").split(/\r?\n/);
+            lines.forEach((line, i) => {
+                if (!CODEX.test(line)) return;
+                const hits = line.match(PKG);
+                if (!hits) return;
+                const bad = hits.filter((h) => !ALLOWED_TAG.test(h));
+                if (bad.length > 0) {
+                    violations.push(
+                        `${relative(root, file).replace(/\\/g, "/")}:${i + 1}  ${bad.join(", ")}  ← ${line.trim()}`
+                    );
+                }
+            });
+        }
+
+        expect(violations, `违反【HC-17】的注释（依据：实测会导致 DocstringParsingError）：\n  ${violations.join("\n  ")}`).to.deep.equal(
+            []
+        );
+    });
+
+    it("HC-17 自检：注入含 @包名 的注释必须被捕获", function () {
+        const CODEX = /^\s*(?:\/\/\/|\/\*|\*)\s/;
+        const PKG = /@[A-Za-z0-9_.-]+\//g;
+        const ALLOWED_TAG = /^@(title|notice|dev|param|return|author|inheritdoc|custom|event|error)\b/;
+
+        const check = (line: string) => {
+            if (!CODEX.test(line)) return [];
+            const hits = line.match(PKG) ?? [];
+            return hits.filter((h) => !ALLOWED_TAG.test(h));
+        };
+
+        expect(check("/// 依赖 zk-kit 的 lean-imt 包")).to.deep.equal([]); // 无反斜杠，合法
+        expect(check("/// 使用 @zk-kit/lean-imt 生成").length).to.equal(1); // 命中
+        expect(check("/// @param x 参数说明")).to.deep.equal([]); // 合法标签
+        expect(check("/// @custom:trace @openzeppelin/contracts 来源").length).to.equal(1); // 尾部包名仍命中
+    });
 });

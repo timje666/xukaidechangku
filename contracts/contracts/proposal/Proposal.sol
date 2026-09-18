@@ -2,8 +2,11 @@
 pragma solidity 0.8.24;
 
 import {PoseidonT4} from "poseidon-solidity/PoseidonT4.sol";
+import {ISemaphore} from "@semaphore-protocol/contracts/interfaces/ISemaphore.sol";
+import {ISemaphoreVerifier} from "@semaphore-protocol/contracts/interfaces/ISemaphoreVerifier.sol";
 
 import {ChainVoteAccessControl} from "../access/ChainVoteAccessControl.sol";
+import {IVoterRegistry} from "../interfaces/IVoterRegistry.sol";
 import {Params} from "../libs/Params.sol";
 import {BallotCodec} from "../libs/BallotCodec.sol";
 import "../libs/Errors.sol";
@@ -25,6 +28,7 @@ struct RevealPayload {
 /// @param proposalId 提案编号（全局唯一，由 Factory 分配）
 /// @param metadataCid IPFS 元数据 CID
 /// @param registry 名册合约地址
+/// @param verifier ZK 验证器地址（生产环境为 SemaphoreVerifier，**不得**为测试替身）
 /// @param registrationEnd 登记期结束时刻
 /// @param votingStart 投票期开始时刻
 /// @param votingEnd 投票期结束时刻（揭示期开始）
@@ -35,6 +39,7 @@ struct ProposalInit {
     uint256 proposalId;
     bytes32 metadataCid;
     address registry;
+    address verifier;
     uint64 registrationEnd;
     uint64 votingStart;
     uint64 votingEnd;
@@ -108,6 +113,9 @@ contract Proposal is ChainVoteAccessControl {
     uint256 public immutable PROPOSAL_ID;
     /// @notice 名册合约地址。投票期取冻结根时使用
     address public immutable REGISTRY;
+    /// @notice ZK 验证器地址
+    /// @dev 【硬约束】生产环境必须为 SemaphoreVerifier；部署脚本需断言其非测试替身
+    address public immutable VERIFIER;
     /// @notice IPFS 元数据 CID
     bytes32 public immutable METADATA_CID;
 
@@ -207,6 +215,7 @@ contract Proposal is ChainVoteAccessControl {
     /// @param init 提案初始化参数，创建时校验并冻结
     constructor(address initialAdmin, ProposalInit memory init) ChainVoteAccessControl(initialAdmin) {
         if (init.registry == address(0)) revert ZeroAddress();
+        if (init.verifier == address(0)) revert ZeroAddress();
         if (!Params.validateOptions(init.optionCount, init.maxChoices)) revert InvalidOptionCount();
         if (
             !Params.validateTimeWindows(
@@ -222,6 +231,7 @@ contract Proposal is ChainVoteAccessControl {
 
         PROPOSAL_ID = init.proposalId;
         REGISTRY = init.registry;
+        VERIFIER = init.verifier;
         METADATA_CID = init.metadataCid;
         REGISTRATION_END = init.registrationEnd;
         VOTING_START = init.votingStart;
@@ -274,6 +284,83 @@ contract Proposal is ChainVoteAccessControl {
         ++nullifierCount;
 
         emit BallotCommitted(PROPOSAL_ID, nullifier, ballotCommitment, index);
+    }
+
+    /// @notice 提交一张选票（含 ZK 成员证明校验）
+    /// @dev 校验顺序是**安全关键**，不可调整：
+    ///      ① 时间窗（直接比较时间戳）
+    ///      ② 冻结根 —— 证明所依据的 Merkle 根必须等于名册的冻结根
+    ///      ③ scope —— 证明必须绑定本提案，防止跨提案重放
+    ///      ④ nullifier 未用（**只读检查**，仅为提前失败省 gas）
+    ///      ⑤ ZK 验证
+    ///      ⑥ **写入**（F-05 硬约束：写入必须严格晚于验证通过）
+    ///
+    ///      【硬约束 F-05】顺序 ⑥ 若被提前到 ⑤ 之前，攻击者可用伪造的 `nullifier`
+    ///      批量写入 `_nullifierUsed`，造成状态膨胀，并可用他人 nullifier 使其永久无法投票。
+    ///      对应的不变量为 INV-9，由不变量测试守护。
+    ///
+    /// @param proof Semaphore 证明。`proof.message` 即选票承诺，由电路绑定、不可伪造
+    function castVote(ISemaphore.SemaphoreProof calldata proof) external {
+        if (block.timestamp < VOTING_START) revert VotingNotOpen();
+        if (block.timestamp >= VOTING_END) revert VotingClosed();
+
+        // ② 冻结根必须已就绪，且与证明依据一致
+        //    requireFrozenRoot 在未冻结时 revert RootNotFrozen，把该约束收敛在一处
+        uint256 frozenRoot = IVoterRegistry(REGISTRY).requireFrozenRoot();
+        if (proof.merkleTreeRoot != frozenRoot) revert RootMismatch();
+
+        // ③ 绑定本提案
+        if (proof.scope != SCOPE) revert InvalidScope();
+
+        // ④ 只读预检
+        if (_nullifierUsed[proof.nullifier]) revert AlreadyVoted();
+
+        // ⑤ 证明校验
+        if (!_verifySemaphoreProof(proof)) revert InvalidProof();
+
+        // ⑥ 验证通过后才写入
+        _recordBallot(proof.nullifier, bytes32(proof.message));
+    }
+
+    /// @notice 调用 Semaphore 官方验证器校验证明
+    /// @dev 公开信号的构造必须与上游逐字一致（见 Semaphore.sol 的 verifyProof）：
+    ///      `[merkleTreeRoot, nullifier, _hash(message), _hash(scope)]`
+    ///      —— `message` 与 `scope` 都是**先哈希再入电路**的，
+    ///      若此处直接传原值，所有合法证明都会被判为无效。
+    ///
+    /// @dev 用 try/catch 包裹验证器调用：验证器对畸形点（不在椭圆曲线上）会直接 revert
+    ///      （ecPairing 预编译失败），调用方拿到的是不可读的底层错误。
+    ///      统一收敛为返回 false、由上层抛出 `InvalidProof()`，
+    ///      使前端只需映射一个错误码，且测试对「伪造证明」的断言是确定性的。
+    /// @param proof Semaphore 证明
+    /// @return 证明有效返回 true；证明无效**或验证器 revert** 均返回 false
+    function _verifySemaphoreProof(ISemaphore.SemaphoreProof calldata proof) internal view returns (bool) {
+        try
+            ISemaphoreVerifier(VERIFIER).verifyProof(
+                [proof.points[0], proof.points[1]],
+                [[proof.points[2], proof.points[3]], [proof.points[4], proof.points[5]]],
+                [proof.points[6], proof.points[7]],
+                [proof.merkleTreeRoot, proof.nullifier, _hash(proof.message), _hash(proof.scope)],
+                proof.merkleTreeDepth
+            )
+        returns (bool ok) {
+            return ok;
+        } catch {
+            return false;
+        }
+    }
+
+    /// @notice 把任意 uint256 映射到 SNARK 标量域内
+    /// @dev 实现必须与 Semaphore 官方一致（`Semaphore.sol` 中的同名私有函数）：
+    ///      `uint256(keccak256(abi.encodePacked(x))) >> 8`
+    ///      右移 8 位是因为 keccak256 输出 256 位，而 SNARK 标量域小于 2^254。
+    ///      上游若修改该实现，本项目必须同步，否则所有合法证明都会被拒。
+    /// @dev 可见性为 `internal`（而非 `private`）是为了让 `ProposalHarness`
+    ///      能把它暴露出来做公式断言——真实环境里它无法被独立观测。
+    /// @param x 待哈希值
+    /// @return 落在标量域内的哈希值
+    function _hash(uint256 x) internal pure returns (uint256) {
+        return uint256(keccak256(abi.encodePacked(x))) >> 8;
     }
 
     // ============================================================
