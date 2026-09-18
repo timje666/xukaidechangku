@@ -6,10 +6,15 @@ import "./Params.sol";
 /// @title BallotCodec —— 选票位图编解码
 /// @notice 多选（D4）以 uint16 位图承载：bit i = 1 表示选中第 i 个选项
 /// @dev 本库为纯函数，无状态、无外部调用，可被 reveal 与测试直接复用
+/// @author ChainVote
 library BallotCodec {
     /// @notice 位图合法：位宽不越界 且 选中数不超限
     /// @dev 修订 F-21：原实现 `if (optionCount >= 16) return false;` 为 off-by-one，
     ///      会错误拒绝 16 选项的合法配置。此处改为 `> 16`。
+    /// @param mask 选票位图，bit i 对应第 i 个选项
+    /// @param optionCount 本提案的选项数
+    /// @param maxChoices 每人最多可选数
+    /// @return 位图与选中数均合法时返回 true
     function validate(uint16 mask, uint8 optionCount, uint8 maxChoices) internal pure returns (bool) {
         if (optionCount == 0 || optionCount > Params.MAX_OPTION_COUNT) return false;
         if (maxChoices == 0 || maxChoices > optionCount) return false;
@@ -24,6 +29,8 @@ library BallotCodec {
 
     /// @notice 统计置位数量（选中项数）
     /// @dev 循环上界固定为 16 轮，无 gas 爆炸风险（G12）
+    /// @param x 选票位图
+    /// @return c 置位数量
     function popcount(uint16 x) internal pure returns (uint8 c) {
         while (x != 0) {
             c += uint8(x & 1);
@@ -32,6 +39,9 @@ library BallotCodec {
     }
 
     /// @notice 将选中项展开为布尔数组，供 UI 与测试使用
+    /// @param mask 选票位图
+    /// @param optionCount 本提案的选项数（决定返回数组长度）
+    /// @return picked 长度等于 optionCount 的布尔数组
     function decode(uint16 mask, uint8 optionCount) internal pure returns (bool[] memory picked) {
         picked = new bool[](optionCount);
         for (uint8 i = 0; i < optionCount; ++i) {
@@ -40,6 +50,8 @@ library BallotCodec {
     }
 
     /// @notice 由布尔数组编码为位图
+    /// @param picked 选项布尔数组，超出 16 位的部分被忽略
+    /// @return mask 编码后的位图
     function encode(bool[] memory picked) internal pure returns (uint16 mask) {
         for (uint256 i = 0; i < picked.length && i < Params.MAX_OPTION_COUNT; ++i) {
             if (picked[i]) mask |= uint16(1) << uint16(i);
@@ -47,11 +59,16 @@ library BallotCodec {
     }
 
     /// @notice 判定掩码中是否选中第 i 项
+    /// @param mask 选票位图
+    /// @param i 选项下标（0 起）
+    /// @return 该选项被选中时返回 true
     function isPicked(uint16 mask, uint8 i) internal pure returns (bool) {
         return (mask & (uint16(1) << i)) != 0;
     }
 
     /// @notice 全选项集合的掩码（如 optionCount = 16 时为 0xFFFF）
+    /// @param optionCount 本提案的选项数
+    /// @return 低 optionCount 位全置的掩码
     function fullMask(uint8 optionCount) internal pure returns (uint16) {
         if (optionCount == 0) return 0;
         if (optionCount >= Params.MAX_OPTION_COUNT) return type(uint16).max;

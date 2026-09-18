@@ -1,0 +1,9 @@
+{
+  "compile_force_framework": "hardhat",
+  "filter_paths": "node_modules|contracts/harness|test/|script/",
+  "exclude_dependencies": true,
+  "exclude_informational": false,
+  "exclude_low": false,
+  "fail_on": "medium",
+  "solc_remaps": []
+}

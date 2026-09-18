@@ -54,6 +54,7 @@ error InvalidTimeWindow();
 error BatchTooLarge();
 error ArrayLengthMismatch();
 error ProposalNotRegistered();
+error ZeroAddress();
 
 // ---------- 中继（MinimalForwarder, F-10） ----------
 /// @notice 请求已过期

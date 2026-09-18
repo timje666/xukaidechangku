@@ -6,6 +6,7 @@ pragma solidity 0.8.24;
 ///         修改本文件任一常量 = 需求变更，必须同步更新
 ///         `docs/区块链去中心化投票系统-实现方案-v2.md` 的冻结记录（§0.3 / §11）。
 /// @dev 全部常量为编译期内联，无存储开销、无读取 gas。
+/// @author ChainVote
 library Params {
     // ============================================================
     // 1. 选项与选票  —— 来源：D4（可多选）、Q6（maxChoices ≤ 8）
@@ -76,6 +77,9 @@ library Params {
     /// @notice 计算本提案的 ZK scope
     /// @dev 绑定 chainId 与提案合约地址，使同一身份在不同提案 / 不同链上
     ///      产生不同 nullifier，且同一 proof 无法跨提案重放（防护 R7）
+    /// @param chainId 当前链 ID
+    /// @param proposal 提案合约地址
+    /// @return 该提案的 scope 值
     function scopeOf(uint256 chainId, address proposal) internal pure returns (uint256) {
         return uint256(keccak256(abi.encode(SCOPE_DOMAIN, chainId, proposal)));
     }
@@ -87,6 +91,10 @@ library Params {
     /**
      * @notice 校验四段时间窗的合法性与相对关系
      * @param now_ 创建时刻（调用方传 block.timestamp）
+     * @param registrationEnd 登记期结束时刻
+     * @param votingStart 投票期开始时刻
+     * @param votingEnd 投票期结束时刻（揭示期开始）
+     * @param revealEnd 揭示期结束时刻（此后可封存）
      * @return ok 全部合法时返回 true
      */
     function validateTimeWindows(
@@ -113,6 +121,9 @@ library Params {
     }
 
     /// @notice 校验选项配置
+    /// @param optionCount 选项数
+    /// @param maxChoices 每人最多可选数
+    /// @return 配置合法时返回 true
     function validateOptions(uint8 optionCount, uint8 maxChoices) internal pure returns (bool) {
         if (optionCount < MIN_OPTION_COUNT || optionCount > MAX_OPTION_COUNT) return false;
         if (maxChoices < MIN_MAX_CHOICES || maxChoices > MAX_MAX_CHOICES) return false;

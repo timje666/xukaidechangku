@@ -4,9 +4,16 @@ name: CI
 #   原方案指定 Foundry（forge fmt / forge test / forge snapshot / forge invariant）。
 #   因目标环境 GitHub 不可达，Foundry 分发包与 forge install 无法使用，
 #   P0 已改用 Hardhat 2.x。本流水线为等价替代实现。
-#   若后续获得 GitHub 访问能力，可恢复 Foundry 并保留本流水线作为双保险。
 #
-# 【待落地】slither 静态分析与 invariant 测试尚未接入，见 docs/P0-环境搭建记录.md 遗留项。
+# 本地已接入的门禁（P1 完成）：
+#   format:check（prettier-plugin-solidity）· lint:sol（solhint）· build · test · coverage · size
+#
+# 【本地不可验证，仅 CI 可用】slither：
+#   本机 Windows 沙箱对删除操作 fail-closed（SAFE_DELETE_FAIL_CLOSED），
+#   pip 安装流程必然触发删除，故 slither 无法在本机安装。
+#   该步骤仅在 Linux CI Runner 上生效，本地开发以 solhint 作为替代。
+#
+# 【待落地】invariant 状态机随机测试（P6，路径 A：Hardhat + 自研）。
 
 on:
   push:
@@ -37,6 +44,14 @@ jobs:
 
       - name: 安装依赖
         run: npm ci --no-audit --no-fund
+
+      # ---------- 门禁 0a：Solidity 格式（对应原方案的 forge fmt） ----------
+      - name: 格式检查
+        run: npm run format:check
+
+      # ---------- 门禁 0b：Solidity 静态分析（solhint） ----------
+      - name: Solidity lint（0 warning 容忍）
+        run: npm run lint:sol
 
       # ---------- 门禁 1：编译（solc 0.8.24） ----------
       - name: 编译合约
@@ -71,6 +86,37 @@ jobs:
             contracts/artifacts/
             contracts/coverage/
           retention-days: 7
+
+  slither:
+    name: Slither 静态分析（仅 CI 可用，本机沙箱不可安装）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: contracts/package-lock.json
+
+      - name: 配置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        working-directory: contracts
+        run: npm ci --no-audit --no-fund
+
+      - name: 安装 Slither
+        run: pip install "slither-analyzer==0.10.4"
+
+      - name: 运行 Slither（High / Medium 未处理即失败）
+        working-directory: contracts
+        run: slither . --config-file slither.config.json --fail-on medium
 
   secret-scan:
     name: 密钥泄漏扫描（【硬约束】）

@@ -1,0 +1,8 @@
+# Solhint 忽略清单
+#
+# contracts/harness/ 下的合约是测试夹具（仅做参数转发、无业务逻辑、不部署到链上），
+# 不适用生产级 NatSpec 要求。将其排除可让告警集中在真正会被审计的合约上。
+#
+# 注意：硬约束守卫测试（test/p1.hard-constraints.test.ts）**不**使用本忽略清单，
+#       harness 同样受全部禁用项扫描约束。
+contracts/harness/

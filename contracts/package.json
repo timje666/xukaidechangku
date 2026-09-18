@@ -9,11 +9,20 @@
     "test": "hardhat test",
     "test:gas": "REPORT_GAS=true hardhat test",
     "node": "hardhat node",
-    "coverage": "hardhat coverage"
+    "coverage": "cross-env COVERAGE_MODE=true hardhat coverage",
+    "coverage:gaps": "node ../scripts/report-coverage-gaps.mjs",
+    "format": "prettier --write \"contracts/**/*.sol\"",
+    "format:check": "prettier --check \"contracts/**/*.sol\"",
+    "lint:sol": "solhint \"contracts/**/*.sol\" --max-warnings 0",
+    "verify": "npm run format:check && npm run lint:sol && npm run build && npm test"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "cross-env": "^10.1.0",
     "hardhat": "^2.29.1",
+    "prettier": "^3.9.8",
+    "prettier-plugin-solidity": "^2.4.1",
+    "solhint": "^6.2.4",
     "typescript": "^5.6.3"
   },
   "dependencies": {
