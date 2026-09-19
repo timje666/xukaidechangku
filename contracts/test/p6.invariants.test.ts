@@ -96,18 +96,29 @@ describe("P6 · 不变量与状态机随机测试（路径 A）", function () {
         const REGISTRAR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ChainVote.REGISTRAR_ROLE"));
         await registry.connect(admin).grantRole(REGISTRAR_ROLE, registrar.address);
 
-        const P = await ethers.getContractFactory("ProposalHarness", {
+        // ★ P7：初始提案也经由 ProposalFactory 创建，使工厂成为「多提案并行」的唯一入口。
+        //   Factory 把 `Proposal` 的创建码内联进自身，故部署时必须链接 PoseidonT4。
+        const FACTORY = await ethers.getContractFactory("ProposalFactory", {
             libraries: { PoseidonT4: pt4Addr },
         });
-        const proposal = await P.deploy(
-            admin.address,
+        const factory = await FACTORY.deploy(admin.address);
+        await factory.waitForDeployment();
+
+        const CREATOR_ROLE = ethers.keccak256(ethers.toUtf8Bytes("ChainVote.CREATOR_ROLE"));
+        await factory.connect(admin).grantRole(CREATOR_ROLE, admin.address);
+
+        // 注意：ethers v6 下「状态变更函数」的 `returns` 值不可通过调用直接解构
+        // （返回的是交易响应）。创建后从工厂索引读回地址（编号恒为 proposalCount）。
+        await factory.connect(admin).createProposal(
             buildProposalInit({
-                proposalId: 1n,
+                proposalId: 0n, // 工厂统一分配，调用方必须传 0
                 registry: await registry.getAddress(),
                 verifier: verifierAddr,
                 ...tw,
             })
         );
+        const proposalAddr0 = await factory.proposalOf(await factory.proposalCount());
+        const proposal = await ethers.getContractAt("Proposal", proposalAddr0);
         await proposal.waitForDeployment();
 
         const scope: bigint = await proposal.SCOPE();
@@ -115,6 +126,7 @@ describe("P6 · 不变量与状态机随机测试（路径 A）", function () {
         return {
             registry,
             proposal,
+            factory,
             pt4,
             pt3Addr,
             pt4Addr,
@@ -148,6 +160,7 @@ describe("P6 · 不变量与状态机随机测试（路径 A）", function () {
         world = createWorld({
             registry: f.registry,
             proposal: f.proposal,
+            factory: f.factory,
             pt4: f.pt4,
             scope: f.scope,
             optionCount: f.optionCount,
@@ -177,19 +190,21 @@ describe("P6 · 不变量与状态机随机测试（路径 A）", function () {
                 );
                 await registry.connect(f.admin).grantRole(REGISTRAR_ROLE, f.registrar.address);
 
-                const P = await ethers.getContractFactory("ProposalHarness", {
-                    libraries: { PoseidonT4: f.pt4Addr },
+                // ★ P7：经 ProposalFactory 创建（真实工厂路径），使「多提案并行」纳入不变量测试。
+                //   之前这里直接 `new ProposalHarness`，绕过了工厂；现在与 InitialProposal 一致，
+                //   全套生命周期都走 `createProposal`，工厂的创建计数 / 注册表一致性由 INV-11 守护。
+                //   注意 `proposalId` 必须传 0 —— 编号由工厂统一分配。
+                const init = buildProposalInit({
+                    proposalId: 0n,
+                    registry: await registry.getAddress(),
+                    verifier: f.verifierAddr,
+                    ...tw,
                 });
-                const proposal = await P.deploy(
-                    f.admin.address,
-                    buildProposalInit({
-                        proposalId: BigInt(world.lifecycleCount + 1),
-                        registry: await registry.getAddress(),
-                        verifier: f.verifierAddr,
-                        ...tw,
-                    })
+                await world.factory.connect(f.admin).createProposal(init);
+                const proposalAddr = await world.factory.proposalOf(
+                    await world.factory.proposalCount()
                 );
-                await proposal.waitForDeployment();
+                const proposal = await ethers.getContractAt("Proposal", proposalAddr);
 
                 world.registry = registry;
                 world.proposal = proposal;
@@ -258,6 +273,7 @@ describe("P6 · 不变量与状态机随机测试（路径 A）", function () {
         return createWorld({
             registry: f.registry,
             proposal: f.proposal,
+            factory: f.factory,
             pt4: f.pt4,
             scope: f.scope,
             optionCount: f.optionCount,
@@ -276,7 +292,7 @@ describe("P6 · 不变量与状态机随机测试（路径 A）", function () {
     // ============================================================
 
     describe("引擎自检（防止守卫静默失效）", function () {
-        it("不变量清单必须完整：10 条且 id 连续", async function () {
+        it("不变量清单必须完整：11 条且 id 连续", async function () {
             const f = await loadFixture(deployFixture);
             const invs = buildInvariants(staticWorld(f));
 

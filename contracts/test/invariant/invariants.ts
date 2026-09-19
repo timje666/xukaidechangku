@@ -383,6 +383,44 @@ export async function checkNoSenderInEvents(w: World): Promise<void> {
 }
 
 // ============================================================
+// INV-11 工厂创建计数与提案注册表一致（P7）
+// ============================================================
+
+/**
+ * INV-11 —— `ProposalFactory` 的「创建计数」与「提案注册表」恒等。
+ *
+ * 具体断言：
+ * · `proposalCount == proposalsLength()`
+ *   （`_proposals.length` 是编号 → 地址索引数组，`proposalCount` 是最后分配的编号；
+ *    二者在每次成功 `createProposal` 时同步 +1，必须恒等。）
+ * · 边界一致性：`proposalOf(proposalCount) == proposalAt(proposalCount - 1)`
+ *   （第 i 个下标对应编号 i+1；工厂是 append-only，只要最近一次创建把同一地址
+ *    同时写入 `_proposalById[proposalCount]` 与 `_proposals`，整张表就一致。）
+ *
+ * 【为什么只查边界而非全表】
+ *   随机战役每轮动作后都无条件调用本断言（硬约束 8）。若全表遍历，
+ *   512×64 战役下复杂度会膨胀到 O(动作数 × 提案数)（千万级）；而工厂 append-only，
+ *   边界一致即代表「上一次创建」合法，配合每轮调用可在**新增即发现**的时刻拦住回归，
+ *   无需回放历史。这是性能与守护强度的平衡取舍，已注释说明。
+ *
+ * @param w 世界状态
+ */
+export async function checkFactoryIndexConsistent(w: World): Promise<void> {
+    const count: bigint = await w.factory.proposalCount();
+    const len: bigint = await w.factory.proposalsLength();
+
+    expect(count, "INV-11: 创建计数必须与索引数组长度恒等").to.equal(len);
+
+    if (count === 0n) return;
+    const atEnd: string = await w.factory.proposalAt(count - 1n);
+    const byIdEnd: string = await w.factory.proposalOf(count);
+    expect(
+        byIdEnd,
+        "INV-11: 最近一次创建的提案，按编号与按下标取出必须一致"
+    ).to.equal(atEnd);
+}
+
+// ============================================================
 // 清单
 // ============================================================
 
@@ -407,8 +445,9 @@ export function buildInvariants(w: World): Invariant[] {
         { id: "INV-8", name: "提交有效性（F-02）", check: () => checkCommitmentWasCast(w) },
         { id: "INV-9", name: "写入滞后（F-05）", check: () => checkWriteHappensAfterVerification(w) },
         { id: "INV-10", name: "事件不含发送者（P5）", check: () => checkNoSenderInEvents(w) },
+        { id: "INV-11", name: "工厂计数与注册表一致（P7）", check: () => checkFactoryIndexConsistent(w) },
     ];
 }
 
 /** 期望的不变量条数，供主测试自检 */
-export const EXPECTED_INVARIANT_COUNT = 10;
+export const EXPECTED_INVARIANT_COUNT = 11;

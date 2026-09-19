@@ -64,6 +64,21 @@ jobs:
       - name: 单元测试
         run: npm test
 
+      # ---------- 门禁 4：合约体积 ≤ 24576 字节（基于【生产】构建） ----------
+      # ★ 必须排在「覆盖率」之前：
+      #   `npm run coverage` 会关闭 optimizer 并向字节码注入插桩，使
+      #   `ProposalFactory`（内联了 `Proposal` 的创建码）运行时代码膨胀到 ~27 KB，
+      #   超过 EIP-170 的 24 KiB 上限。体积检查若基于覆盖率字节码会得到假阳性失败。
+      #   生产构建（optimizer 开启）下工厂约 18 KB，真实可部署；
+      #   体积门禁只应校验生产字节码，覆盖率模式下的膨胀是工具产物、并非可部署形态
+      #   （测试网络的 EIP-170 限制已在 hardhat.config.ts 覆盖率模式下放开）。
+      - name: 合约体积检查
+        run: node ../scripts/check-contract-size.mjs
+
+      # ---------- 门禁 4b：库链接依赖检查（同样基于生产构建） ----------
+      - name: 库链接依赖检查
+        run: node ../scripts/check-link-references.mjs
+
       # ---------- 门禁 3：覆盖率 ----------
       # 【必须走 npm run coverage，不能写 npx hardhat coverage】
       #   package.json 的 coverage 脚本用 cross-env 注入 COVERAGE_MODE=true，
@@ -74,10 +89,6 @@ jobs:
         run: npm run coverage
       - name: 覆盖率门槛（行覆盖 ≥ 90%）
         run: node ../scripts/check-coverage.mjs 90
-
-      # ---------- 门禁 4：合约体积 ≤ 24576 字节 ----------
-      - name: 合约体积检查
-        run: node ../scripts/check-contract-size.mjs
 
       # ---------- 门禁 5：gas 基线快照 ----------
       - name: 生成 gas 基线

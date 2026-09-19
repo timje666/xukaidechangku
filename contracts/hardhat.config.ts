@@ -50,7 +50,19 @@ const config: HardhatUserConfig = {
   networks: {
     hardhat: {
       chainId: 31337,
-      allowUnlimitedContractSize: false,
+      // 【P7 刻意】覆盖率模式下放开 EIP-170 体积限制。
+      //
+      // 原因：`ProposalFactory` 通过 `new Proposal(...)` 把 `Proposal` 的**创建字节码**
+      // 内联进自身运行时代码。生产构建（optimizer 开启）下工厂约 18 KB，远低于 24 KiB；
+      // 但覆盖率构建关闭 optimizer 后，内联的 `Proposal` 创建码膨胀到 ~25 KB，
+      // 工厂运行时代码随之超过 EIP-170 的 24 KiB 上限，`new Proposal` 在覆盖率网络下
+      // 会因 EIP-170 直接 revert，导致 P6 不变量测试与 P7 单测在覆盖率模式无法部署工厂。
+      //
+      // 因此覆盖率模式（仅采集覆盖率，不部署到主网）临时放开体积限制，使测试能跑。
+      // 真正的 EIP-170 门禁由 `check-contract-size.mjs` 在**生产构建**下把关
+      // （见 .github/workflows/ci.yml：体积检查排在 `coverage` 之前，基于 optimizer 开启的字节码）。
+      // 二者不冲突：测试可部署（覆盖率），部署字节码仍受真实上限约束（生产）。
+      allowUnlimitedContractSize: COVERAGE_MODE,
     },
     localhost: {
       url: "http://127.0.0.1:8545",

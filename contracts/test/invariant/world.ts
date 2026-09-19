@@ -51,6 +51,9 @@ export interface World {
     // ---------- 不可变引用 ----------
     registry: any;
     proposal: any;
+    /** 提案工厂：多提案并行的唯一创建入口（P7）。`spawnLifecycle` 经它创建新提案，
+     *  INV-11 守护其「创建计数 ↔ 提案注册表」一致性。 */
+    factory: any;
     pt4: any;
     scope: bigint;
     optionCount: number;
@@ -173,6 +176,7 @@ export interface World {
 export function createWorld(base: {
     registry: any;
     proposal: any;
+    factory: any;
     pt4: any;
     scope: bigint;
     optionCount: number;

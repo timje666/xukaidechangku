@@ -101,6 +101,15 @@ error EmptyRoster();
 ///      把它写成 revert 即 fail-closed：宁可登记失败，也不写入陈旧根。
 error RosterRootMismatch(uint256 returnedRoot);
 
+// ---------- 提案工厂（P7） ----------
+/// @notice 提案编号由工厂统一分配，调用方必须显式传 0
+/// @dev 拒绝非零编号是**刻意的 fail-closed**：若允许调用方自带编号，
+///      两个提案就可能拿到同一编号，而编号是结果哈希与索引器的关联键，
+///      冲突会让「提案 ↔ 结果」的映射出现歧义。与其静默覆盖，不如直接拒绝。
+error ProposalIdMustBeZero();
+/// @notice 查询了不存在（或越界）的提案。`key` 为请求的编号或下标
+error UnknownProposal(uint256 key);
+
 // ---------- 配置校验 ----------
 error InvalidOptionCount();
 error InvalidTimeWindow();
