@@ -1,0 +1,212 @@
+{
+  "network": "hardhat",
+  "chainId": 31337,
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "deployNonce0": 0,
+  "deployedAt": "2026-09-19T14:52:17.847Z",
+  "timelock": {
+    "minDelay": "172800",
+    "proposer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "executors": [
+      "0x0000000000000000000000000000000000000000"
+    ],
+    "admin": "0x0000000000000000000000000000000000000000",
+    "selfAdministered": true
+  },
+  "contracts": {
+    "PoseidonT3": {
+      "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+      "txHash": "0x63e727a916223b8c44126ea592f486f0de5159a3567ddee81280488315b7e072",
+      "blockNumber": 1,
+      "gasUsed": "3693374",
+      "constructorArgs": [],
+      "libraries": {}
+    },
+    "PoseidonT4": {
+      "address": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+      "txHash": "0xb0a72aad6e9dc5fb72e3102a3084c40c8d2265b60d59148dc0e5417c970ac113",
+      "blockNumber": 2,
+      "gasUsed": "2773879",
+      "constructorArgs": [],
+      "libraries": {}
+    },
+    "SemaphoreVerifier": {
+      "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+      "txHash": "0xdd962a37ac8612b07186c0a87375024b59a2d71990f7b3fd5e2799a2d241bdfd",
+      "blockNumber": 3,
+      "gasUsed": "3722180",
+      "constructorArgs": [],
+      "libraries": {}
+    },
+    "Timelock": {
+      "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+      "txHash": "0xa0088788b0f7b5aa7645870850c1f0d9ddcf7e150275306c43a3b5586c26a846",
+      "blockNumber": 4,
+      "gasUsed": "1650238",
+      "constructorArgs": [
+        "172800",
+        [
+          "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+        ],
+        [
+          "0x0000000000000000000000000000000000000000"
+        ],
+        "0x0000000000000000000000000000000000000000"
+      ],
+      "libraries": {}
+    },
+    "ProposalFactory": {
+      "address": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+      "txHash": "0x7fcb965a57d32d34e2385e562b689974cf438047a35500070071c43502c759d6",
+      "blockNumber": 5,
+      "gasUsed": "2953383",
+      "constructorArgs": [
+        "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+      ],
+      "libraries": {
+        "PoseidonT4": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+      }
+    }
+  },
+  "checks": [
+    {
+      "name": "地址确定性 · PoseidonT3",
+      "ok": true,
+      "detail": "实际 0x5FbDB2315678afecb367f032d93F642f64180aa3，按 CREATE(deployer, nonce=0) 预测 0x5fbdb2315678afecb367f032d93f642f64180aa3"
+    },
+    {
+      "name": "地址确定性 · PoseidonT4",
+      "ok": true,
+      "detail": "实际 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512，按 CREATE(deployer, nonce=1) 预测 0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"
+    },
+    {
+      "name": "地址确定性 · SemaphoreVerifier",
+      "ok": true,
+      "detail": "实际 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0，按 CREATE(deployer, nonce=2) 预测 0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0"
+    },
+    {
+      "name": "地址确定性 · Timelock",
+      "ok": true,
+      "detail": "实际 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9，按 CREATE(deployer, nonce=3) 预测 0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9"
+    },
+    {
+      "name": "地址确定性 · ProposalFactory",
+      "ok": true,
+      "detail": "实际 0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9，按 CREATE(deployer, nonce=4) 预测 0xdc64a140aa3e981100a9beca4e685f962f0cf6c9"
+    },
+    {
+      "name": "Timelock 延时不低于合约下限",
+      "ok": true,
+      "detail": "minDelay=172800s，下限=172800s（2 天）"
+    },
+    {
+      "name": "Timelock 自管理（无 EOA 无延时管理员）",
+      "ok": true,
+      "detail": "DEFAULT_ADMIN_ROLE: Timelock=true，deployer=false"
+    },
+    {
+      "name": "工厂的 PROPOSAL_ADMIN 为 Timelock",
+      "ok": true,
+      "detail": "PROPOSAL_ADMIN=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9，Timelock=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+    },
+    {
+      "name": "工厂的 DEFAULT_ADMIN_ROLE 为 Timelock",
+      "ok": true,
+      "detail": "Timelock=true，deployer=false"
+    },
+    {
+      "name": "部署者无任何业务角色",
+      "ok": true,
+      "detail": "deployer 的 CREATOR_ROLE=false（应为 false）"
+    },
+    {
+      "name": "CREATOR_ROLE 常量与链上角色名一致",
+      "ok": true,
+      "detail": "roleName(0x9004d14a…) = CREATOR_ROLE"
+    },
+    {
+      "name": "验证器为官方 SemaphoreVerifier（非测试替身）",
+      "ok": true,
+      "detail": "部署字节码 15886 B，与官方实现逐字节一致=true"
+    },
+    {
+      "name": "PoseidonT4 已链接进工厂字节码",
+      "ok": true,
+      "detail": "已链接 PoseidonT4"
+    },
+    {
+      "name": "CREATOR_ROLE 已经时间锁授予选举管理员",
+      "ok": true,
+      "detail": "electionAdmin=0x70997970C51812dc3A010C7d01b50e0d17dc79C8，hasRole(CREATOR_ROLE)=true，operationId=0xe98e2495b4d4ee85b39597514c5ceee5608800d55f90d2dfe4ce396fd7b59a2f"
+    },
+    {
+      "name": "PoseidonT3 已链接进名册字节码",
+      "ok": true,
+      "detail": "已链接 PoseidonT3"
+    },
+    {
+      "name": "冒烟 · 提案的 VERIFIER 为已部署的官方验证器",
+      "ok": true,
+      "detail": "Proposal.VERIFIER=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0，期望 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
+    },
+    {
+      "name": "冒烟 · 提案的 REGISTRY 与本次部署的名册一致",
+      "ok": true,
+      "detail": "Proposal.REGISTRY=0xa513E6E4b8f2a923D98304ec87F64353C4D5C853"
+    },
+    {
+      "name": "冒烟 · 工厂索引可反查该提案",
+      "ok": true,
+      "detail": "proposalCount=1，isProposal=true"
+    },
+    {
+      "name": "冒烟 · 提案编号由工厂分配（1 起）",
+      "ok": true,
+      "detail": "proposalCount=1，PROPOSAL_ID=1"
+    }
+  ],
+  "timelockOperations": [
+    {
+      "operationId": "0xe98e2495b4d4ee85b39597514c5ceee5608800d55f90d2dfe4ce396fd7b59a2f",
+      "target": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+      "signature": "grantRole(bytes32,address)",
+      "args": [
+        "0x9004d14abeff00de62efcfa9d206ff4722d8daffd00ed9f73139f005e4f1dee9",
+        "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+      ],
+      "data": "0x2f2ff15d9004d14abeff00de62efcfa9d206ff4722d8daffd00ed9f73139f005e4f1dee900000000000000000000000070997970c51812dc3a010c7d01b50e0d17dc79c8",
+      "salt": "0xe81c3c84d48ac7e992589b0d9abe253f7a2fddcbb0d357cdf4eef65b33d2e326",
+      "eta": "1790002345",
+      "state": "executed",
+      "note": "本地链已快进执行"
+    }
+  ],
+  "smoke": {
+    "registry": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+    "proposalId": "1",
+    "proposal": "0x856e4424f806D16E8CBC702B3c0F2ede5468eae5",
+    "creator": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "checks": [
+      {
+        "name": "提案的 VERIFIER 为已部署的官方验证器",
+        "ok": true,
+        "detail": "Proposal.VERIFIER=0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0，期望 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
+      },
+      {
+        "name": "提案的 REGISTRY 与本次部署的名册一致",
+        "ok": true,
+        "detail": "Proposal.REGISTRY=0xa513E6E4b8f2a923D98304ec87F64353C4D5C853"
+      },
+      {
+        "name": "工厂索引可反查该提案",
+        "ok": true,
+        "detail": "proposalCount=1，isProposal=true"
+      },
+      {
+        "name": "提案编号由工厂分配（1 起）",
+        "ok": true,
+        "detail": "proposalCount=1，PROPOSAL_ID=1"
+      }
+    ]
+  }
+}

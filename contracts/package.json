@@ -16,7 +16,13 @@
     "lint:sol": "solhint \"contracts/**/*.sol\" --max-warnings 0",
     "check:links": "node ../scripts/check-link-references.mjs",
     "check:size": "node ../scripts/check-contract-size.mjs",
-    "verify": "npm run format:check && npm run lint:sol && npm run build && npm run check:links && npm run check:size && npm test"
+    "check:determinism": "node ../scripts/check-deploy-determinism.mjs",
+    "deploy:local": "hardhat run script/deploy.ts",
+    "deploy:baseSepolia": "hardhat run script/deploy.ts --network baseSepolia",
+    "deploy:base": "hardhat run script/deploy.ts --network base",
+    "execute:operation": "hardhat run script/execute-operation.ts",
+    "verify:deployment": "hardhat run script/verify-deployment.ts",
+    "verify": "npm run format:check && npm run lint:sol && npm run build && npm run check:links && npm run check:size && npm test && npm run check:determinism"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",

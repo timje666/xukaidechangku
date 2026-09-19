@@ -8,6 +8,14 @@ name: CI
 # 本地已接入的门禁（P1 完成）：
 #   format:check（prettier-plugin-solidity）· lint:sol（solhint）· build · test · coverage · size
 #
+# 【已落地】P8 部署门禁：
+#   1) 部署脚本冒烟（script/deploy.ts）在测试中被直接调用（test/p8.deploy.test.ts），
+#      覆盖接线自检、时间锁排程→等待→执行、真实验证器断言、端到端冒烟提案；
+#   2) 「部署确定性」独立成步（下方「门禁 6」），以两个独立进程各跑一次全链部署并比对产物，
+#      对应 DoD「anvil 二次执行地址一致」。
+#   3) 源码验证（浏览器可验证）需外网与 BASESCAN_API_KEY，由 `npm run verify:deployment`
+#      在具备条件的环境执行，CI 不做（无密钥、也不应把地址提交到浏览器）。
+#
 # slither（仅标准 pip 安装路径在本机受限）：
 #   本机 Windows 沙箱对删除操作 fail-closed（SAFE_DELETE_FAIL_CLOSED），
 #   故标准 `pip install slither-analyzer` 流程无法在本机完成；
@@ -78,6 +86,16 @@ jobs:
       # ---------- 门禁 4b：库链接依赖检查（同样基于生产构建） ----------
       - name: 库链接依赖检查
         run: node ../scripts/check-link-references.mjs
+
+      # ---------- 门禁 6：部署确定性（P8 DoD「anvil 二次执行地址一致」） ----------
+      # 为什么放在覆盖率之前：本门禁会以**生产配置**跑真实的部署脚本，
+      #   Hardhat 可能因配置哈希变化而重新编译并覆盖 artifacts。
+      #   若排在 coverage 之后，会把「覆盖率模式的非优化字节码」写回 artifacts，
+      #   影响后续任何基于生产字节码的判断。放在前面可保证 artifacts 始终是生产形态。
+      # 该步骤在**两个独立进程**里各跑一次部署并逐字段比对，
+      #   模拟「换台机器 / 重置链 / 重新部署」，两次地址必须一致。
+      - name: 部署确定性（两个独立进程 · 全新链各跑一次）
+        run: npm run check:determinism
 
       # ---------- 门禁 3：覆盖率 ----------
       # 【必须走 npm run coverage，不能写 npx hardhat coverage】

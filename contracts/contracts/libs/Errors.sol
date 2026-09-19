@@ -110,6 +110,16 @@ error ProposalIdMustBeZero();
 /// @notice 查询了不存在（或越界）的提案。`key` 为请求的编号或下标
 error UnknownProposal(uint256 key);
 
+// ---------- 治理时间锁（P8） ----------
+/// @notice Timelock 的最小延时低于协议下限
+/// @dev 无延时的「时间锁」不是时间锁：若允许 `minDelay` 低于下限，
+///      一次角色变更可以在同一笔交易内完成「排程 → 执行」，
+///      审计者与利益相关方拿不到任何异议窗口，改「时间锁」为「无锁」。
+///      故把它做成**构造期 fail-closed**——宁可部署失败，
+///      也不部署一个名字叫 Timelock 却无实际延时的合约。
+///      下限值见 `governance/Timelock.sol` 的 `MIN_TIMELOCK_DELAY`。
+error TimelockDelayTooShort(uint256 provided, uint256 minimum);
+
 // ---------- 配置校验 ----------
 error InvalidOptionCount();
 error InvalidTimeWindow();
