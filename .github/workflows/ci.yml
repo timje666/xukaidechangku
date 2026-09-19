@@ -8,18 +8,21 @@ name: CI
 # 本地已接入的门禁（P1 完成）：
 #   format:check（prettier-plugin-solidity）· lint:sol（solhint）· build · test · coverage · size
 #
-# 【本地不可验证，仅 CI 可用】slither：
+# slither（仅标准 pip 安装路径在本机受限）：
 #   本机 Windows 沙箱对删除操作 fail-closed（SAFE_DELETE_FAIL_CLOSED），
-#   pip 安装流程必然触发删除，故 slither 无法在本机安装。
-#   该步骤仅在 Linux CI Runner 上生效，本地开发以 solhint 作为替代。
+#   故标准 `pip install slither-analyzer` 流程无法在本机完成；
+#   但已验证可用「下载 wheels + 手动 zipfile.extractall」绕过删除拦截，在本机实跑（见 R-P6-5）。
+#   本步骤以 GitHub 托管 Linux Runner 为规范执行环境（天然可达 GitHub 拉 solc + PyPI 装 slither）。
 #
-# 【待落地】invariant 状态机随机测试（P6，路径 A：Hardhat + 自研）。
+# 【已落地】invariant 状态机随机测试（P6，路径 A：Hardhat + 自研）：
+#   由 `npm test`（hardhat test 通配全部 test/*.test.ts）统一执行，
+#   含 p6.invariants / p6b.calldata-fuzz / p6c.minimizer 三套件，已纳入本流水线门禁。
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, master]
   pull_request:
-    branches: [main, develop]
+    branches: [main, develop, master]
 
 defaults:
   run:
@@ -88,7 +91,7 @@ jobs:
           retention-days: 7
 
   slither:
-    name: Slither 静态分析（仅 CI 可用，本机沙箱不可安装）
+    name: Slither 静态分析（规范环境：GitHub Linux Runner；本机可用 wheels 解包实跑）
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
