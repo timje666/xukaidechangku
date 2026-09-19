@@ -91,6 +91,16 @@ error ZeroCommitment();
 /// @notice 名册为空，不可固化根
 error EmptyRoster();
 
+// ---------- 名册树一致性（P2；Slither `unused-return` 的正解） ----------
+/// @notice 上游 `_insertMany` 的返回值与树内持久化根不一致
+/// @dev 这是一条**跨模块契约断言**，不是防御性空检查：
+///      链上根由 `_roster.sideNodes[depth]` 承载，而 `_insertMany` 的返回值是
+///      同一次计算得到的另一份拷贝。二者同源，正常情况下永不触发。
+///      若上游改为「只返回、不再写入 sideNodes[depth]」，登记交易仍会成功，
+///      但链上根会静默停留在旧值 —— 这种漂移无法从外部察觉。
+///      把它写成 revert 即 fail-closed：宁可登记失败，也不写入陈旧根。
+error RosterRootMismatch(uint256 returnedRoot);
+
 // ---------- 配置校验 ----------
 error InvalidOptionCount();
 error InvalidTimeWindow();

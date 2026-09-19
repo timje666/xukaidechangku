@@ -39,6 +39,16 @@ import "../libs/Errors.sol";
 ///      任何人可在登记期结束后调用 `freezeVotersRoot()`。设计为无门槛是为了避免
 ///      「管理员拒不冻结导致提案卡死」——与 `finalize()` 的设计原则一致。
 ///
+///      **6. `_insertMany` 的返回值必须被消费（不是可选的风格问题）**
+///      上游 `_insertMany` 返回插入后的新根。静态分析（Slither `unused-return`，
+///      Medium/Medium）指出此处丢弃了返回值。该返回值业务上确实用不到（本合约在
+///      `freezeVotersRoot()` 才读根），但**丢弃会让「链上根 == 插入返回值」这一
+///      跨模块契约失去守卫**：链上根实际存于 `sideNodes[depth]`，返回值只是同源拷贝，
+///      若上游不再写该槽，登记照样成功而根静默陈旧。
+///      故把返回值与 `_root()` 做一次断言（失败即 `RosterRootMismatch`，fail-closed），
+///      成本仅 2 次热 SLOAD。这也是对静态分析告警的**正解**：
+///      既不是 `// slither-disable-next-line` 注释豁免，也不是删除告警规则。
+///
 /// @author ChainVote
 contract VoterRegistry is ChainVoteAccessControl {
     using InternalLeanIMT for LeanIMTData;
@@ -148,7 +158,15 @@ contract VoterRegistry is ChainVoteAccessControl {
         }
 
         // ---- 阶段二：一次性批量插入（原子性由整笔交易保证）----
-        _roster._insertMany(commitments);
+        // 【为何消费返回值】上游 `_insertMany` 返回「插入后的新根」，而本合约直到
+        // `freezeVotersRoot()` 才读取固化根，因此该返回值在业务上并不需要。
+        // 但**直接丢弃**它会掩盖一个真实风险（Slither `unused-return` 指出的正是此处）：
+        // 链上根由 `sideNodes[depth]` 承载，返回值是同一计算的另一份拷贝；
+        // 若上游改为只返回、不再写该槽，登记仍会成功而链上根静默停留在旧值。
+        // 故此处把返回值与持久化根做一次一致性断言（fail-closed），
+        // 成本仅 2 次热 SLOAD（两个槽刚被本函数写入），远低于一次插入。
+        uint256 newRoot = _roster._insertMany(commitments);
+        if (newRoot != _roster._root()) revert RosterRootMismatch(newRoot);
 
         // ---- 阶段三：事件（顺序即插入顺序，供链下按序重建树）----
         for (uint256 i = 0; i < n; ++i) {

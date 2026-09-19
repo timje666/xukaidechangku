@@ -30,7 +30,7 @@
 contracts/
 ├── contracts/registry/
 │   └── VoterRegistry.sol           ★ 新增：地址白名单 + 承诺 Merkle 名册
-├── contracts/libs/Errors.sol       新增 5 个名册相关错误
+├── contracts/libs/Errors.sol       新增 6 个名册相关错误（含 Slither Medium 修复引入的 `RosterRootMismatch`）
 ├── test/p2.voter-registry.test.ts  ★ 新增：26 项测试
 └── SOLHINT.md                      ★ 新增：lint 规则裁剪说明（含两条关闭规则的技术理由）
 ```
@@ -133,6 +133,48 @@ LeanIMT 的 `leaves` 映射本身就是「承诺 → 下标+1」，可直接判�
 
 **F-09 的估算区间成立**，但此前未计入白名单 SSTORE 与事件开销。
 `Params.MAX_REGISTER_BATCH = 50` 对应单笔约 442 万 gas，安全余量充足，**无需调整**。
+
+### 4.4 修复：消费 `_insertMany` 返回值（Slither `unused-return` Medium 的正解）
+
+**发现过程**：CI 接入 Slither 后，`slither . --config-file slither.config.json --fail-medium`
+**退出码 255**。⚠️ 起初凭文本输出肉眼判断为「全为 Low/Informational」，属误判——
+Slither 文本输出**不打印 impact**。改用 `--json` 精确分级后定位到唯一一条 Medium：
+
+```
+unused-return (Medium/Medium)
+VoterRegistry.registerVoters() ignores return value by _roster._insertMany(commitments)
+```
+
+**为什么不能靠注释豁免**：上游 `_insertMany` **返回插入后的新根**，而本合约直到
+`freezeVotersRoot()` 才读取固化根，该返回值业务上确实用不到。
+但**直接丢弃它会让一条跨模块契约失去守卫**：
+
+| | 载体 | 说明 |
+| --- | --- | --- |
+| 链上根 | `_roster.sideNodes[depth]` | 由 `_insertMany` 内部写入（源码 L217） |
+| 返回值 | `currentLevelNewNodes[0]` | 同一次计算的**另一份拷贝**（源码 L219） |
+| `_roster._root()` | `sideNodes[self.depth]` | 读的正是 L217 写入的那个槽 |
+
+二者**同源，正常情况下必然相等**；但若上游改为「只返回、不再写 `sideNodes[depth]`」，
+登记交易**仍会成功**，而链上根静默停留在旧值——这种漂移无法从外部察觉。
+
+**处置**（消费而非豁免）：
+
+```solidity
+uint256 newRoot = _roster._insertMany(commitments);
+if (newRoot != _roster._root()) revert RosterRootMismatch(newRoot);
+```
+
+- 新增错误 `RosterRootMismatch(uint256 returnedRoot)`（`Errors.sol`，HC-19 零引用检查通过）；
+- 语义为 **fail-closed**：宁可登记失败，也不写入陈旧根；
+- 成本仅 **2 次热 SLOAD**（两个槽刚被本函数写入），相对单地址 88,432 gas 可忽略。
+
+**为什么不选「排除该探测器」**：DoD 要的是「无 High/Medium」，把探测器排除掉等于
+把门禁改松；而本修复同时**确实提升**了代码对上游实现漂移的抵抗力。
+
+**实测结果**：修复后 `--fail-medium` **退出码 0**；结果数 24 条不变
+（`unused-return` 消失，代价是 `registerVoters` 的圈复杂度达到阈值，多出 1 条
+**Informational** 的 `cyclomatic-complexity`）——两者都不触及 DoD 阈值。
 
 ---
 
