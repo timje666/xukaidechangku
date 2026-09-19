@@ -120,11 +120,20 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       - name: 安装 Slither
-        run: pip install "slither-analyzer==0.10.4"
+        # 版本对齐本机实跑版本（0.11.6）：DoD「Slither 无 High/Medium」的结论
+        # 来自该版本的实测，CI 用同一版本才能与本地结论互相印证。
+        run: pip install "slither-analyzer==0.11.6"
 
       - name: 运行 Slither（High / Medium 未处理即失败）
         working-directory: contracts
-        run: slither . --config-file slither.config.json --fail-on medium
+        # ★不要写 `--fail-on medium`：Slither 的 CLI 没有 `--fail-on <level>` 这个选项
+        #   （带值的 `fail_on` 只能写在 slither.config.json 里）。
+        #   写成 `--fail-on medium` 会让 argparse 直接报 unrecognized arguments 并以退出码 2 结束，
+        #   表现为「红线但没有任何分析输出」——正是本轮 CI #1/#2 的失败原因。
+        #   命令行对应的正确开关是下面这个无值开关 `--fail-medium`。
+        run: |
+          slither --version
+          slither . --config-file slither.config.json --fail-medium
 
   secret-scan:
     name: 密钥泄漏扫描（【硬约束】）
