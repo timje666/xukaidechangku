@@ -65,8 +65,13 @@ jobs:
         run: npm test
 
       # ---------- 门禁 3：覆盖率 ----------
+      # 【必须走 npm run coverage，不能写 npx hardhat coverage】
+      #   package.json 的 coverage 脚本用 cross-env 注入 COVERAGE_MODE=true，
+      #   而 hardhat.config.ts 依据该变量在覆盖率模式下关闭 optimizer。
+      #   若直调 npx hardhat coverage，optimizer 保持开启 → library internal 函数被内联，
+      #   覆盖率归属偏移，产生 P1 已实测到的「虚假缺口」（假阴性）。二者必须一致。
       - name: 覆盖率
-        run: npx hardhat coverage
+        run: npm run coverage
       - name: 覆盖率门槛（行覆盖 ≥ 90%）
         run: node ../scripts/check-coverage.mjs 90
 
