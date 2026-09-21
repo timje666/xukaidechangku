@@ -1,0 +1,317 @@
+:root {
+  --bg: #0b1020;
+  --panel: #141b2e;
+  --panel-2: #1b2440;
+  --text: #e6ebf5;
+  --muted: #97a3bd;
+  --accent: #5b8cff;
+  --ok: #36d399;
+  --warn: #fbbd23;
+  --err: #f87272;
+  --border: #2a3554;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+
+.sub {
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 24px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--muted);
+}
+
+.status {
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  margin-top: 12px;
+}
+
+.status.idle {
+  background: transparent;
+}
+.status.signing {
+  background: rgba(91, 140, 255, 0.12);
+  color: var(--accent);
+}
+.status.pending {
+  background: rgba(251, 189, 35, 0.12);
+  color: var(--warn);
+}
+.status.confirmed {
+  background: rgba(54, 211, 153, 0.12);
+  color: var(--ok);
+}
+.status.failed {
+  background: rgba(248, 114, 114, 0.12);
+  color: var(--err);
+}
+
+.banner {
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-top: 12px;
+}
+.banner.contract {
+  background: rgba(248, 114, 114, 0.1);
+  border: 1px solid rgba(248, 114, 114, 0.3);
+  color: #ffd2d2;
+}
+.banner.network {
+  background: rgba(251, 189, 35, 0.1);
+  border: 1px solid rgba(251, 189, 35, 0.3);
+  color: #ffe9b0;
+}
+.banner.ok {
+  background: rgba(54, 211, 153, 0.1);
+  border: 1px solid rgba(54, 211, 153, 0.3);
+  color: #bff5dd;
+}
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.opt {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  text-align: center;
+  font-size: 13px;
+  user-select: none;
+}
+.opt.on {
+  border-color: var(--accent);
+  background: rgba(91, 140, 255, 0.12);
+}
+
+/* ---- P9 页面布局与组件（登记 / 投票 / 钱包条） ---- */
+.page {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 20px 64px;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.topbar h1 {
+  font-size: 20px;
+}
+.hero h2 {
+  margin: 8px 0 4px;
+}
+.hero p {
+  color: var(--muted);
+  font-size: 14px;
+}
+.cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+.card {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  color: var(--text);
+  text-decoration: none;
+}
+.card:hover {
+  border-color: var(--accent);
+}
+.card h3 {
+  margin: 0 0 6px;
+}
+.card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.foot {
+  margin-top: 32px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.wallet {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.wallet-addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.wallet-chain {
+  font-size: 12px;
+  color: var(--muted);
+}
+.btn-ghost {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover {
+  border-color: var(--accent);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.field input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+.kv {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+}
+.kv span {
+  font-size: 12px;
+  color: var(--muted);
+}
+.kv code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.tag-ok {
+  color: var(--ok);
+  font-size: 13px;
+  margin: 8px 0;
+}
+.tag-warn {
+  color: var(--warn);
+  font-size: 13px;
+  margin: 8px 0;
+}
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* banner 变体（errors.ts 的 ErrorCategory） */
+.banner.rejected {
+  background: rgba(248, 114, 114, 0.1);
+  border: 1px solid rgba(248, 114, 114, 0.3);
+  color: #ffd2d2;
+}
+.banner.gas {
+  background: rgba(251, 189, 35, 0.1);
+  border: 1px solid rgba(251, 189, 35, 0.3);
+  color: #ffe9b0;
+}
+.banner.chain {
+  background: rgba(91, 140, 255, 0.1);
+  border: 1px solid rgba(91, 140, 255, 0.3);
+  color: #cdd9ff;
+}
+.banner.unknown {
+  background: rgba(151, 163, 189, 0.1);
+  border: 1px solid rgba(151, 163, 189, 0.3);
+  color: var(--muted);
+}

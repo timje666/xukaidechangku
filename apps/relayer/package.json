@@ -1,0 +1,14 @@
+{
+  "name": "chainvote-relayer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ChainVote 纯中继服务：代付 gas 广播 castVote，私钥仅存本服务 .env",
+  "scripts": {
+    "start": "node index.mjs",
+    "dev": "node --watch index.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  }
+}

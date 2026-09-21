@@ -124,6 +124,55 @@ jobs:
             contracts/coverage/
           retention-days: 7
 
+  frontend:
+    name: 前端门禁（typecheck · build · 单元测试 · lint）
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci --no-audit --no-fund
+
+      #  snark 产物在有 egress 时预取（CDN 不可达则跳过，仅跑非 ZK 单测）
+      - name: 预取 snark 产物（可选）
+        continue-on-error: true
+        run: npm run fetch:snark
+        env:
+          SNARK_VERSION: "4.13.0"
+
+      - name: 类型检查
+        run: npm run typecheck
+
+      - name: 构建
+        run: npm run build
+
+      - name: 单元测试
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
+
+      #  DoD ③：前端包不含任何私钥 / 管理员密钥
+      - name: 密钥扫描（前端包不含私钥）
+        run: |
+          set -e
+          if grep -rnE '0x[0-9a-fA-F]{64}' --include='*.ts' --include='*.js' src; then
+            echo "::error::前端源码含疑似私钥的 64 位十六进制字符串"; exit 1
+          fi
+          echo "前端密钥扫描通过"
+
   slither:
     name: Slither 静态分析（规范环境：GitHub Linux Runner；本机可用 wheels 解包实跑）
     runs-on: ubuntu-latest
